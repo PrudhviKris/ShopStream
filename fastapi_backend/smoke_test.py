@@ -244,6 +244,58 @@ try:
     r = client.get(f"/orders/{order_id}", headers=auth)
     check("order marked paid", r.json()["order_status"] == "paid" and r.json()["payment_status"] == "succeeded")
 
+    # ---- Real Stripe webhook processing (regression test) ----
+    # Found live in production: obj = event["data"]["object"] is a *typed*
+    # Stripe resource (e.g. checkout.Session), not a plain dict — newer
+    # stripe-python raises AttributeError on dict-style .get()/.items(), which
+    # crashed every real webhook delivery with a 500 while mock-mode tests (the
+    # block above) never touched this code at all. These checks build genuine
+    # typed Stripe objects (stripe.Event.construct_from, no network) so this
+    # class of bug can't silently reappear.
+    import stripe as _stripe
+    from unittest.mock import patch as _patch
+
+    def _fake_stripe_event(session_id, metadata=None):
+        return _stripe.Event.construct_from(
+            {
+                "id": "evt_test_" + session_id,
+                "object": "event",
+                "type": "checkout.session.completed",
+                "data": {"object": {
+                    "id": session_id,
+                    "object": "checkout.session",
+                    "payment_status": "paid",
+                    "metadata": metadata or {},
+                }},
+            },
+            "sk_test_fake",
+        )
+
+    r = client.post("/cart/add", json={"product_id": 2, "quantity": 1}, headers=auth)
+    r = client.post("/checkout", headers=auth)
+    webhook_order_id = r.json()["order_id"]
+    real_txn_id = r.json()["transaction_id"]
+
+    with _patch("app.routers.payments.stripe_service.construct_webhook_event",
+                return_value=_fake_stripe_event(real_txn_id)):
+        r = client.post("/payments/webhook", content=b"{}", headers={"Stripe-Signature": "test"})
+    check("webhook: direct transaction_id match (typed obj.id, not .get())",
+          r.status_code == 200 and r.json()["matched"] is True, r.text)
+    check("webhook direct-match order now paid",
+          client.get(f"/orders/{webhook_order_id}", headers=auth).json()["order_status"] == "paid")
+
+    r = client.post("/cart/add", json={"product_id": 3, "quantity": 1}, headers=auth)
+    r = client.post("/checkout", headers=auth)
+    fallback_order_id = r.json()["order_id"]
+
+    with _patch("app.routers.payments.stripe_service.construct_webhook_event",
+                return_value=_fake_stripe_event("cs_unrelated_id", metadata={"order_id": str(fallback_order_id)})):
+        r = client.post("/payments/webhook", content=b"{}", headers={"Stripe-Signature": "test"})
+    check("webhook: metadata.order_id fallback match (typed obj.metadata, not .get())",
+          r.status_code == 200 and r.json()["matched"] is True, r.text)
+    check("webhook fallback-match order now paid",
+          client.get(f"/orders/{fallback_order_id}", headers=auth).json()["order_status"] == "paid")
+
     # ---- Order status flow (staff/admin) ----
     check("customer cannot update status", client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=auth).status_code == 403)
     r = client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=admin_auth)

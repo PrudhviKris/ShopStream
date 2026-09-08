@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import List
 
@@ -11,6 +12,7 @@ from ..schemas import AdminPaymentOut, PaymentOut
 from ..services import stripe_service
 from ..services.notification_service import notify
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
@@ -84,22 +86,32 @@ async def stripe_webhook(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Webhook error: {exc}")
 
-    obj = event["data"]["object"]
-    transaction_id = obj.get("id")
-    payment = db.query(Payment).filter(Payment.transaction_id == transaction_id).first()
-    if payment is None:
-        # Fall back to metadata order_id (PaymentIntent created from a Session, etc.)
-        order_id = (obj.get("metadata") or {}).get("order_id")
-        if order_id:
-            payment = db.query(Payment).filter(Payment.order_id == int(order_id)).first()
-    if payment is None:
-        return {"received": True, "matched": False}
+    try:
+        obj = event["data"]["object"]
+        # obj is a typed Stripe resource (e.g. checkout.Session), not a plain dict —
+        # newer stripe-python raises on dict-style .get()/.items(); use attributes.
+        transaction_id = obj.id
+        payment = db.query(Payment).filter(Payment.transaction_id == transaction_id).first()
+        if payment is None:
+            # Fall back to metadata order_id (PaymentIntent created from a Session, etc.)
+            metadata = obj.metadata.to_dict() if obj.metadata else {}
+            order_id = metadata.get("order_id")
+            if order_id:
+                payment = db.query(Payment).filter(Payment.order_id == int(order_id)).first()
+        if payment is None:
+            return {"received": True, "matched": False}
 
-    if event["type"] in ("checkout.session.completed", "payment_intent.succeeded"):
-        _mark_paid(db, payment)
-    elif event["type"] == "payment_intent.payment_failed":
-        _mark_failed(db, payment)
-    return {"received": True, "matched": True}
+        if event["type"] in ("checkout.session.completed", "payment_intent.succeeded"):
+            _mark_paid(db, payment)
+        elif event["type"] == "payment_intent.payment_failed":
+            _mark_failed(db, payment)
+        return {"received": True, "matched": True}
+    except Exception:
+        # Log the full traceback (visible in the server console) before letting
+        # this surface as a 500 — Stripe retries non-2xx responses for days, so
+        # a real transient failure still resolves once fixed/retried.
+        logger.exception("Stripe webhook processing failed for event %s", event["id"])
+        raise
 
 
 @router.post("/mock/confirm/{order_id}", response_model=PaymentOut)
