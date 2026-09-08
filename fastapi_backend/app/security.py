@@ -50,6 +50,15 @@ def create_refresh_token(user_id: int, role: str) -> tuple[str, str, datetime]:
     return token, jti, datetime.utcnow() + delta
 
 
+def create_oauth_state() -> str:
+    """Short-lived CSRF token carried through the OAuth redirect round-trip."""
+    return _create_token(0, "none", "oauth_state", timedelta(minutes=10))
+
+
+def verify_oauth_state(state: Optional[str]) -> bool:
+    return bool(state) and decode_token(state, expected_type="oauth_state") is not None
+
+
 def decode_token(token: str, expected_type: str = "access") -> Optional[dict]:
     """Return the payload if the token is valid and of the expected type, else None."""
     try:

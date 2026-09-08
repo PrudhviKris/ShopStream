@@ -154,12 +154,20 @@ ngrok http 3000
 ```
 
 The printed `https://….ngrok-free.dev` URL serves the storefront, the API, and live
-notifications (wss) to anyone. Use that URL when registering OAuth apps:
+notifications (wss) to anyone. Set it as `PUBLIC_URL` in `fastapi_backend/.env` —
+the OAuth redirect URLs are built from it:
 
-- **Google**: add the ngrok URL to *Authorized JavaScript origins* (alongside
-  `http://localhost:3000`).
-- **Facebook**: set it as the *Site URL* / add the domain to *App domains* —
-  Facebook requires HTTPS, which ngrok provides.
+| Provider | Where to register | Redirect URL |
+|---|---|---|
+| Google | Google Cloud Console → Credentials → your OAuth client → *Authorized redirect URIs* | `{PUBLIC_URL}/api/auth/google/callback` |
+| Facebook | developers.facebook.com → your app → Facebook Login → Settings → *Valid OAuth Redirect URIs* | `{PUBLIC_URL}/api/auth/facebook/callback` |
+
+Register the `http://localhost:3000/...` variants too so login also works without the
+tunnel (then set `PUBLIC_URL=http://localhost:3000`). The login flow: the Sign-in page's
+**Google / Facebook** buttons hit `GET /api/auth/<provider>/login`, which redirects to the
+provider's consent page; the provider redirects back to the callback URL above; the
+backend exchanges the code, creates the user if new, and hands the SPA its JWT pair via
+the URL fragment. A CSRF `state` token (10 min) protects the round-trip.
 
 Note: a free-plan ngrok URL changes on every restart (visitors also see a one-time
 interstitial page); reserve a static domain in the ngrok dashboard to keep OAuth

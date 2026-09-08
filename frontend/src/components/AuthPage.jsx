@@ -60,6 +60,16 @@ export default function AuthPage({ onSuccess }) {
           </button>
         </form>
 
+        <div className="divider"><span>or continue with</span></div>
+        <div className="social-btns">
+          <a className="btn btn-ghost btn-block" href={api.socialLoginUrl("google")}>
+            <span className="g-mark">G</span> Google
+          </a>
+          <a className="btn btn-ghost btn-block" href={api.socialLoginUrl("facebook")}>
+            <span className="f-mark">f</span> Facebook
+          </a>
+        </div>
+
         <div className="auth-switch">
           {mode === "login" ? (
             <>New here? <button onClick={() => { setMode("register"); setError(""); }}>Create an account</button></>

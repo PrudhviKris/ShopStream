@@ -47,10 +47,20 @@ export default function App() {
   useEffect(loadProducts, [loadProducts]);
 
   useEffect(() => {
+    // Returning from a Google/Facebook OAuth redirect: tokens (or an error)
+    // arrive in the URL fragment.
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    if (hash.get("access_token")) {
+      api.adoptTokens(hash.get("access_token"), hash.get("refresh_token"));
+      window.history.replaceState(null, "", window.location.pathname);
+    } else if (hash.get("social_error")) {
+      pushToast({ type: "info", title: "Social login failed", message: hash.get("social_error") });
+      window.history.replaceState(null, "", window.location.pathname);
+    }
     if (api.isLoggedIn()) {
       api.me().then((u) => { setUser(u); }).catch(() => api.logout());
     }
-  }, []);
+  }, [pushToast]);
 
   useEffect(() => {
     if (!user) return;

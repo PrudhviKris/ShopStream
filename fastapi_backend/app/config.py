@@ -25,6 +25,7 @@ _PLACEHOLDERS = {
     "whsec_...",
     "generate-a-long-random-secret",
     "your-google-client-id.apps.googleusercontent.com",
+    "your-google-client-secret",
     "your-facebook-app-id",
     "your-facebook-app-secret",
 }
@@ -70,11 +71,18 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
-    # Direct Google Sign-In (console.cloud.google.com -> APIs & Services -> Credentials)
+    # Public origin users reach the app through (ngrok URL when tunneling,
+    # http://localhost:3000 otherwise). OAuth redirect URIs are built from it:
+    #   {PUBLIC_URL}/api/auth/google/callback
+    #   {PUBLIC_URL}/api/auth/facebook/callback
+    PUBLIC_URL = os.getenv("PUBLIC_URL", "http://localhost:3000").rstrip("/")
+
+    # Google Sign-In (console.cloud.google.com -> APIs & Services -> Credentials)
     GOOGLE_CLIENT_ID = _env("GOOGLE_CLIENT_ID")
-    # Direct Facebook Login (developers.facebook.com -> your app)
-    FACEBOOK_APP_ID = _env("FACEBOOK_APP_ID")
-    FACEBOOK_APP_SECRET = _env("FACEBOOK_APP_SECRET")
+    GOOGLE_CLIENT_SECRET = _env("GOOGLE_CLIENT_SECRET")
+    # Facebook Login (developers.facebook.com -> your app); both naming styles accepted
+    FACEBOOK_APP_ID = _env("FACEBOOK_APP_ID") or _env("FACEBOOK_CLIENT_ID")
+    FACEBOOK_APP_SECRET = _env("FACEBOOK_APP_SECRET") or _env("FACEBOOK_CLIENT_SECRET")
 
     # Stripe
     STRIPE_SECRET_KEY = _env("STRIPE_SECRET_KEY")

@@ -4,6 +4,13 @@ Covers: register/login/refresh/me, RBAC, product filters, cart CRUD + totals,
 checkout -> order -> payment, mock payment confirmation, order status flow,
 notifications (DB + WebSocket real-time push).
 """
+import os
+
+# Force mock payments for the test run even when real Stripe keys are in .env —
+# the suite must not create real Stripe sessions. Set BEFORE importing the app.
+os.environ["STRIPE_SECRET_KEY"] = ""
+os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+
 from fastapi.testclient import TestClient
 
 import seed
@@ -200,5 +207,22 @@ check("google endpoint present", r.status_code in (401, 503), r.text)
 r = client.post("/auth/social/facebook", json={"access_token": "x"})
 check("facebook endpoint present", r.status_code in (401, 503), r.text)
 check("auth0 endpoint removed", client.post("/auth/social/auth0", json={"id_token": "x"}).status_code == 404)
+
+# ---- OAuth redirect flow (redirect URLs for ngrok) ----
+r = client.get("/auth/google/login", follow_redirects=False)
+check("google oauth redirect",
+      r.status_code in (302, 307) and "accounts.google.com" in r.headers.get("location", "")
+      and "auth%2Fgoogle%2Fcallback" in r.headers.get("location", "")
+      or r.status_code == 503,  # not configured yet
+      r.text)
+r = client.get("/auth/facebook/login", follow_redirects=False)
+check("facebook oauth redirect",
+      r.status_code in (302, 307) and "facebook.com" in r.headers.get("location", "")
+      and "auth%2Ffacebook%2Fcallback" in r.headers.get("location", "")
+      or r.status_code == 503,
+      r.text)
+r = client.get("/auth/google/callback?code=bogus&state=bogus", follow_redirects=False)
+check("google callback rejects bad state",
+      r.status_code in (302, 307) and "social_error" in r.headers.get("location", ""), r.text)
 
 print(f"\nAll {passed} checks passed.")

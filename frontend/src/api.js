@@ -52,6 +52,11 @@ async function refreshTokens() {
 }
 
 export const api = {
+  // Adopt tokens delivered via the OAuth redirect fragment (#access_token=…)
+  adoptTokens: (access_token, refresh_token) => tokens.set({ access_token, refresh_token }),
+  // Browser-redirect entry points for the server-side OAuth flow
+  socialLoginUrl: (provider) => `${ABSOLUTE_BASE}/auth/${provider}/login`,
+
   register: (name, email, password) =>
     request("/auth/register", { method: "POST", body: { name, email, password } }).then((t) => tokens.set(t)),
   login: (email, password) =>
