@@ -125,6 +125,38 @@ export default function AdminPage({ user, notify }) {
     }
   }
 
+  async function confirmCash(orderId) {
+    try {
+      await api.confirmCashPayment(orderId);
+      setOrders(await api.allOrders());
+      notify("Cash received", `Order #${orderId} marked paid; invoice issued.`);
+    } catch (err) {
+      notify("Confirm failed", err.message);
+    }
+  }
+
+  async function deleteOrder(orderId) {
+    if (!window.confirm(`Delete order #${orderId} with its payment and invoice? Stock is restored unless shipped.`)) return;
+    try {
+      await api.deleteOrder(orderId);
+      setOrders(await api.allOrders());
+      notify("Order deleted", `Order #${orderId} removed.`);
+    } catch (err) {
+      notify("Delete failed", err.message);
+    }
+  }
+
+  async function deletePayment(paymentId) {
+    if (!window.confirm(`Delete payment #${paymentId}? Its order reverts to payment pending.`)) return;
+    try {
+      await api.deletePayment(paymentId);
+      setPayments(await api.allPayments());
+      notify("Payment deleted", `Payment #${paymentId} removed.`);
+    } catch (err) {
+      notify("Delete failed", err.message);
+    }
+  }
+
   const tabs = [
     { id: "products", label: "🗂️ Products" },
     { id: "orders", label: "📦 Orders" },
@@ -180,9 +212,15 @@ export default function AdminPage({ user, notify }) {
                   <td><span className={`pill ${o.payment_status}`}>{o.payment_status}</span></td>
                   <td><span className={`pill ${o.order_status}`}>{o.order_status}</span></td>
                   <td className="row-actions">
+                    {o.payment?.payment_method === "cash" && o.payment_status === "pending" && (
+                      <button className="btn btn-soft btn-sm" onClick={() => confirmCash(o.id)}>💵 cash received</button>
+                    )}
                     {(NEXT_STATUS[o.order_status] || []).map((s) => (
                       <button key={s} className="btn btn-ghost btn-sm" onClick={() => changeStatus(o.id, s)}>{s}</button>
                     ))}
+                    {isAdmin && (
+                      <button className="btn btn-danger-soft btn-sm" onClick={() => deleteOrder(o.id)}>🗑</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -196,7 +234,7 @@ export default function AdminPage({ user, notify }) {
         <div className="panel table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>Payment</th><th>Order</th><th>Customer</th><th>Amount</th><th>Method</th><th>Transaction</th><th>Status</th></tr>
+              <tr><th>Payment</th><th>Order</th><th>Customer</th><th>Amount</th><th>Method</th><th>Transaction</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
               {payments.map((p) => (
@@ -208,9 +246,12 @@ export default function AdminPage({ user, notify }) {
                   <td>{p.payment_method}</td>
                   <td className="mono">{p.transaction_id}</td>
                   <td><span className={`pill ${p.status}`}>{p.status}</span></td>
+                  <td className="row-actions">
+                    <button className="btn btn-danger-soft btn-sm" onClick={() => deletePayment(p.id)}>🗑</button>
+                  </td>
                 </tr>
               ))}
-              {payments.length === 0 && <tr><td colSpan={7} className="sub">No payments yet.</td></tr>}
+              {payments.length === 0 && <tr><td colSpan={8} className="sub">No payments yet.</td></tr>}
             </tbody>
           </table>
         </div>

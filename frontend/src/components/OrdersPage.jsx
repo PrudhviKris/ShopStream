@@ -51,12 +51,26 @@ export default function OrdersPage({ orders, invoices, onPayNow, onShop }) {
             <div className="order-items">
               {order.items.map((i) => `${i.product_name} × ${i.quantity}`).join("  ·  ")}
             </div>
+            {order.payment && (
+              <div className="pay-line">
+                <span className={`pill ${order.payment.payment_method === "cash" ? "pending" : "shipped"}`}>
+                  {order.payment.payment_method === "cash" ? "💵 cash on delivery" : "💳 stripe"}
+                </span>
+                <span className="txn" title="Transaction ID">
+                  txn: {order.payment.transaction_id}
+                </span>
+              </div>
+            )}
             <Track status={order.order_status} />
             {order.order_status === "pending" && order.payment_status === "pending" && (
               <div>
-                <button className="btn btn-soft btn-sm" onClick={() => onPayNow(order.id)}>
-                  💳 Complete payment
-                </button>
+                {order.payment?.payment_method === "cash" ? (
+                  <span className="sub-note">Pay in cash when your order arrives — staff will confirm receipt.</span>
+                ) : (
+                  <button className="btn btn-soft btn-sm" onClick={() => onPayNow(order.id)}>
+                    💳 Complete payment
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -160,6 +160,7 @@ class OrderOut(BaseModel):
     order_status: OrderStatus
     created_at: datetime
     items: List[OrderItemOut]
+    payment: Optional[PaymentOut] = None  # method + transaction id (stripe / cash)
 
 
 class AdminOrderOut(OrderOut):

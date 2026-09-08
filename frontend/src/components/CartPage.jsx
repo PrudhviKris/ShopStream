@@ -46,8 +46,17 @@ export default function CartPage({ cart, products, onUpdateQty, onRemove, onChec
             <span>${cart.tax.toFixed(2)}</span>
           </div>
           <div className="sum-row total"><span>Total</span><span>${cart.grand_total.toFixed(2)}</span></div>
-          <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} disabled={busy} onClick={onCheckout}>
-            {busy ? "Processing…" : "💳 Checkout with Stripe"}
+          <button
+            className="btn btn-primary btn-block" style={{ marginTop: 16 }}
+            disabled={busy} onClick={() => onCheckout("stripe")}
+          >
+            {busy ? "Processing…" : "💳 Pay with Stripe"}
+          </button>
+          <button
+            className="btn btn-soft btn-block" style={{ marginTop: 10 }}
+            disabled={busy} onClick={() => onCheckout("cash")}
+          >
+            💵 Cash on delivery
           </button>
         </aside>
       </div>

@@ -83,10 +83,15 @@ export const api = {
   removeFromCart: (product_id) =>
     request(`/cart/remove/${product_id}`, { method: "DELETE" }),
 
-  checkout: () => request("/checkout?flow=session", { method: "POST" }),
+  checkout: (paymentMethod = "stripe") =>
+    request(`/checkout?flow=session&payment_method=${paymentMethod}`, { method: "POST" }),
   orders: () => request("/orders"),
   mockConfirmPayment: (orderId) =>
     request(`/payments/mock/confirm/${orderId}?outcome=success`, { method: "POST" }),
+  confirmCashPayment: (orderId) =>
+    request(`/payments/cash/confirm/${orderId}`, { method: "POST" }),
+  deleteOrder: (orderId) => request(`/orders/${orderId}`, { method: "DELETE" }),
+  deletePayment: (paymentId) => request(`/payments/${paymentId}`, { method: "DELETE" }),
   notifications: () => request("/notifications"),
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PUT" }),
   markAllNotificationsRead: () => request("/notifications/read-all", { method: "PUT" }),

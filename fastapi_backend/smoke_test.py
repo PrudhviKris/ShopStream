@@ -201,12 +201,56 @@ check("admin can pay", r.status_code == 200 and r.json()["status"] == "succeeded
 r = client.get("/invoices", headers=admin_auth)
 check("admin gets own invoice after buying", any(i["order_id"] == admin_order for i in r.json()), r.text)
 
+# ---- Cash on delivery: checkout, transaction id, staff confirm ----
+r = client.post("/cart/add", json={"product_id": 5, "quantity": 1}, headers=auth)
+check("cash: add to cart", r.status_code == 201, r.text)
+r = client.post("/checkout?payment_method=cash", headers=auth)
+check("cash checkout", r.status_code == 200, r.text)
+cash = r.json()
+check("cash transaction id issued",
+      cash["payment_provider"] == "cash" and cash["transaction_id"].startswith("CASH-"), str(cash))
+cash_order = cash["order_id"]
+r = client.get(f"/orders/{cash_order}", headers=auth)
+check("order exposes payment method + txn id",
+      r.json()["payment"]["payment_method"] == "cash"
+      and r.json()["payment"]["transaction_id"] == cash["transaction_id"], r.text)
+check("customer cannot confirm cash",
+      client.post(f"/payments/cash/confirm/{cash_order}", headers=auth).status_code == 403)
+r = client.post(f"/payments/cash/confirm/{cash_order}", headers=staff_auth)
+check("staff confirms cash received", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
+check("cash order paid + invoiced",
+      client.get(f"/orders/{cash_order}", headers=auth).json()["order_status"] == "paid"
+      and any(i["order_id"] == cash_order for i in client.get("/invoices", headers=auth).json()))
+check("double cash confirm rejected",
+      client.post(f"/payments/cash/confirm/{cash_order}", headers=staff_auth).status_code == 400)
+
+# ---- Admin deletes payments and orders ----
+r = client.post("/cart/add", json={"product_id": 9, "quantity": 2}, headers=auth)
+r = client.post("/checkout?payment_method=cash", headers=auth)
+del_order = r.json()["order_id"]
+payment_id = client.get(f"/payments/{del_order}", headers=auth).json()["id"]
+check("customer cannot delete payment",
+      client.delete(f"/payments/{payment_id}", headers=auth).status_code == 403)
+check("staff cannot delete payment",
+      client.delete(f"/payments/{payment_id}", headers=staff_auth).status_code == 403)
+check("admin deletes payment", client.delete(f"/payments/{payment_id}", headers=admin_auth).status_code == 204)
+check("payment gone", client.get(f"/payments/{del_order}", headers=auth).status_code == 404)
+
+stock_before_del = client.get("/products/9").json()["stock"]
+check("customer cannot delete order",
+      client.delete(f"/orders/{del_order}", headers=auth).status_code == 403)
+check("admin deletes order", client.delete(f"/orders/{del_order}", headers=admin_auth).status_code == 204)
+check("order gone", client.get(f"/orders/{del_order}", headers=auth).status_code == 404)
+check("stock restored after order delete",
+      client.get("/products/9").json()["stock"] == stock_before_del + 2)
+
 # ---- Social login endpoints exist (503 until provider keys are configured) ----
 r = client.post("/auth/social/google", json={"id_token": "x"})
 check("google endpoint present", r.status_code in (401, 503), r.text)
 r = client.post("/auth/social/facebook", json={"access_token": "x"})
 check("facebook endpoint present", r.status_code in (401, 503), r.text)
-check("auth0 endpoint removed", client.post("/auth/social/auth0", json={"id_token": "x"}).status_code == 404)
+# 404 without the SPA catch-all; 405 with it (catch-all serves GET only)
+check("auth0 endpoint removed", client.post("/auth/social/auth0", json={"id_token": "x"}).status_code in (404, 405))
 
 # ---- OAuth redirect flow (redirect URLs for ngrok) ----
 r = client.get("/auth/google/login", follow_redirects=False)

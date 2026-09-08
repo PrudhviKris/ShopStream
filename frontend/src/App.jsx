@@ -116,16 +116,23 @@ export default function App() {
     }
   }
 
-  async function checkout() {
+  async function checkout(paymentMethod = "stripe") {
     setBusy(true);
     try {
-      const result = await api.checkout();
+      const result = await api.checkout(paymentMethod);
       setCart(await api.cart());
       setOrders(await api.orders());
       loadProducts();
       if (result.checkout_url && !result.checkout_url.includes("mock-checkout")) {
         window.location.href = result.checkout_url; // Stripe hosted page
       } else {
+        if (paymentMethod === "cash") {
+          pushToast({
+            type: "order",
+            title: "Order placed — cash on delivery",
+            message: `Transaction ref ${result.transaction_id}. Pay on delivery.`,
+          });
+        }
         setView("orders");
       }
     } catch (err) {
@@ -168,6 +175,21 @@ export default function App() {
       />
 
       <main className="main">
+        {view === "shop" && !filters.search && (
+          <section className="hero">
+            <h1>Everything you need, delivered smart.</h1>
+            <p>
+              Browse the catalog, pay by card or cash on delivery, and follow every order
+              live — from checkout to your doorstep.
+            </p>
+            <div className="hero-badges">
+              <span className="hero-badge">🚚 Free delivery</span>
+              <span className="hero-badge">💳 Stripe &amp; 💵 cash</span>
+              <span className="hero-badge">🔔 Live order tracking</span>
+            </div>
+          </section>
+        )}
+
         {view === "shop" && (
           <div className="shop-layout">
             <Filters filters={filters} setFilters={setFilters} />

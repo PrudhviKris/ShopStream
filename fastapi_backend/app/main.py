@@ -3,11 +3,35 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from .config import settings
+from .config import BASE_DIR, settings
 from .database import Base, engine
 from .routers import auth, cart, checkout, invoices, notifications, orders, payments, products
 from .services.notification_service import manager
+
+
+class ApiPrefixMiddleware:
+    """Accept requests with or without a leading /api prefix (HTTP + WebSocket).
+
+    The Vite dev server proxies '/api/*' here; when FastAPI serves the built
+    frontend itself, the SPA's '/api/*' calls arrive directly. Both work.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path == "/api" or path.startswith("/api/"):
+                scope = dict(scope)
+                scope["path"] = path[4:] or "/"
+                raw = scope.get("raw_path")
+                if raw:
+                    scope["raw_path"] = raw[4:] or b"/"
+        await self.app(scope, receive, send)
 
 Base.metadata.create_all(bind=engine)
 
@@ -61,6 +85,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiPrefixMiddleware)
 
 app.include_router(auth.router)
 app.include_router(products.router)
@@ -72,6 +97,31 @@ app.include_router(invoices.router)
 app.include_router(notifications.router)
 
 
-@app.get("/", tags=["Health"])
+@app.get("/health", tags=["Health"])
 def health():
     return {"service": settings.APP_NAME, "version": settings.API_VERSION, "status": "ok"}
+
+
+# ---------- Serve the built frontend (frontend/dist) at / ----------
+# `npm run build` in frontend/ produces dist/; with it present:
+#   http://127.0.0.1:8000/      -> the storefront SPA
+#   http://127.0.0.1:8000/docs  -> Swagger UI (API routes keep priority)
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        candidate = FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
+else:
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return {
+            "service": settings.APP_NAME,
+            "docs": "/docs",
+            "hint": "run `npm run build` in frontend/ to serve the storefront here",
+        }

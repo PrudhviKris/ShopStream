@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..deps import get_current_user, require_admin
+from ..deps import get_current_user, require_admin, require_staff_or_admin
 from ..models import Invoice, Order, OrderStatus, Payment, PaymentStatus, User, UserRole
 from ..schemas import AdminPaymentOut, PaymentOut
 from ..services import stripe_service
@@ -143,6 +143,41 @@ def all_payments(db: Session = Depends(get_db), _admin: User = Depends(require_a
         )
         for p in payments
     ]
+
+
+@router.post("/cash/confirm/{order_id}", response_model=PaymentOut)
+def confirm_cash_payment(
+    order_id: int,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_or_admin),
+):
+    """Staff/admin confirm cash was received on delivery -> order paid + invoice."""
+    payment = db.query(Payment).filter(Payment.order_id == order_id).first()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.payment_method != "cash":
+        raise HTTPException(status_code=400, detail="Not a cash-on-delivery payment")
+    if payment.status == PaymentStatus.succeeded:
+        raise HTTPException(status_code=400, detail="Payment already confirmed")
+    _mark_paid(db, payment)
+    db.refresh(payment)
+    return payment
+
+
+@router.delete("/{payment_id}", status_code=204)
+def delete_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Admin only: delete a payment record. The order reverts to payment pending."""
+    payment = db.get(Payment, payment_id)
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    order = payment.order
+    order.payment_status = PaymentStatus.pending
+    db.delete(payment)
+    db.commit()
 
 
 @router.get("/{order_id}", response_model=PaymentOut)
