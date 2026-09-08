@@ -15,12 +15,32 @@ Full-stack e-commerce system with three services:
 ```bash
 cd fastapi_backend
 pip install -r requirements.txt
-cp .env.example .env        # optional — runs with safe defaults without it
+cp .env.example .env        # set MYSQL_PASSWORD here (see Database below)
 python seed.py              # admin/staff/customer demo users + 12 products
 uvicorn app.main:app --reload --port 8000
 ```
 
-Interactive API docs: http://localhost:8000/docs
+**API documentation is Swagger UI**: http://localhost:8000/docs — click **Authorize**
+and paste the `access_token` from `POST /auth/login` to call protected endpoints
+(authorization persists across page reloads). ReDoc alternative: http://localhost:8000/redoc
+
+### Database: MySQL 8.0+
+
+The platform connects to the local MySQL Windows service (`MySQL80` / `MySQL90`) on
+port 3306 via PyMySQL. Set your credentials in `fastapi_backend/.env`:
+
+```
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=<your password>
+MYSQL_DB=ecommerce
+```
+
+The `ecommerce` database is **created automatically on first run** (utf8mb4).
+The Django service reads the same `.env`, so both services share one MySQL database.
+If `MYSQL_PASSWORD` is not set, both services fall back to a local SQLite file so
+the project still runs.
 
 Seeded logins:
 
@@ -44,7 +64,8 @@ python manage.py runserver 8001
 - Analytics JSON: http://localhost:8001/analytics/ (revenue, orders by status, top products)
 
 The store models are `managed = False` — Django reads/writes the tables owned by
-the FastAPI service (shared SQLite by default; set `STORE_DB_ENGINE=postgres` + `STORE_DB_*` for Postgres).
+the FastAPI service in the same MySQL database (credentials come from
+`fastapi_backend/.env`; SQLite fallback when no MySQL password is set).
 
 ### 3. Frontend
 
@@ -97,7 +118,7 @@ transitions rejected; staff/admin update statuses, customers get notified in rea
 
 ## Testing
 
-- `fastapi_backend/smoke_test.py` — 40+ end-to-end checks (auth, RBAC, filters, cart math,
-  checkout, payment, WebSocket push): `python smoke_test.py`
-- `postman/Smart-ECommerce.postman_collection.json` — import into Postman; the Login request
-  auto-stores tokens into collection variables.
+- **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
+  endpoint — login, copy the token into **Authorize**, and try requests in the browser.
+- `fastapi_backend/smoke_test.py` — 39 end-to-end checks (auth, RBAC, filters, cart math,
+  checkout, payment, WebSocket push) against the configured database: `python smoke_test.py`

@@ -23,11 +23,25 @@ class Settings:
     APP_NAME = "Smart E-Commerce Platform"
     API_VERSION = "1.0.0"
 
-    # Database — SQLite by default so the project runs out of the box.
-    # Point at Postgres in production, e.g. postgresql+psycopg2://user:pass@host/db
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL", f"sqlite:///{(BASE_DIR / 'ecommerce.db').as_posix()}"
-    )
+    # Database — MySQL 8.0+ (Windows service "MySQL80"/"MySQL90", port 3306).
+    # Configure via MYSQL_* vars in .env, or set a full DATABASE_URL directly.
+    # Falls back to local SQLite only when no MySQL password is configured,
+    # so the project still runs before credentials are set up.
+    MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
+    MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
+    MYSQL_USER = os.getenv("MYSQL_USER", "root")
+    MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+    MYSQL_DB = os.getenv("MYSQL_DB", "ecommerce")
+
+    if os.getenv("DATABASE_URL"):
+        DATABASE_URL = os.environ["DATABASE_URL"]
+    elif MYSQL_PASSWORD:
+        DATABASE_URL = (
+            f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"
+            f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}?charset=utf8mb4"
+        )
+    else:
+        DATABASE_URL = f"sqlite:///{(BASE_DIR / 'ecommerce.db').as_posix()}"
 
     # JWT
     JWT_SECRET_KEY = os.getenv(

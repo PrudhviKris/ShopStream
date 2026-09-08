@@ -54,24 +54,40 @@ TEMPLATES = [
 WSGI_APPLICATION = "ecommerce_admin.wsgi.application"
 
 # Shared store database (FastAPI owns these tables) + Django's own tables.
-# For Postgres, set STORE_DB_* env vars.
-_store_engine = os.getenv("STORE_DB_ENGINE", "sqlite")
-if _store_engine == "sqlite":
+# Reads the same MYSQL_* variables as the FastAPI service (from its .env);
+# falls back to the shared SQLite file when no MySQL password is configured.
+def _load_fastapi_env():
+    env_file = BASE_DIR.parent / "fastapi_backend" / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_fastapi_env()
+
+if os.getenv("MYSQL_PASSWORD"):
+    import pymysql
+
+    pymysql.install_as_MySQLdb()  # lets Django's mysql backend use PyMySQL
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR.parent / "fastapi_backend" / "ecommerce.db",
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": os.getenv("MYSQL_DB", "ecommerce"),
+            "USER": os.getenv("MYSQL_USER", "root"),
+            "PASSWORD": os.environ["MYSQL_PASSWORD"],
+            "HOST": os.getenv("MYSQL_HOST", "127.0.0.1"),
+            "PORT": os.getenv("MYSQL_PORT", "3306"),
+            "OPTIONS": {"charset": "utf8mb4"},
         }
     }
 else:
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("STORE_DB_NAME", "ecommerce"),
-            "USER": os.getenv("STORE_DB_USER", "postgres"),
-            "PASSWORD": os.getenv("STORE_DB_PASSWORD", ""),
-            "HOST": os.getenv("STORE_DB_HOST", "localhost"),
-            "PORT": os.getenv("STORE_DB_PORT", "5432"),
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR.parent / "fastapi_backend" / "ecommerce.db",
         }
     }
 
