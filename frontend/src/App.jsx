@@ -1,25 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import Header from "./components/Header";
-import { Filters, ProductCard, ProductModal } from "./components/Catalog";
-import CartPage from "./components/CartPage";
-import OrdersPage from "./components/OrdersPage";
+import { canManageProducts } from "./roles";
+import Topbar from "./components/Topbar";
+import Sidebar from "./components/Sidebar";
 import AuthPage from "./components/AuthPage";
-import AdminPage from "./components/AdminPage";
+import DashboardPage from "./components/DashboardPage";
+import ProductsPage from "./components/ProductsPage";
+import OrdersPage from "./components/OrdersPage";
+import PaymentsPage from "./components/PaymentsPage";
+import InvoicesPage from "./components/InvoicesPage";
+import CartDrawer from "./components/CartDrawer";
+import { ProductDetailModal, ProductFormModal } from "./components/Catalog";
 
 const TOAST_ICONS = { order: "📦", payment: "💳", info: "🔔" };
 
 export default function App() {
-  const [view, setView] = useState("shop"); // shop | cart | orders | auth
+  const [view, setView] = useState("dashboard"); // dashboard | products | orders | payments | invoices | auth
   const [user, setUser] = useState(null);
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
   const [cart, setCart] = useState(null);
+  const [cartOpen, setCartOpen] = useState(false);
   const [orders, setOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [notifRefresh, setNotifRefresh] = useState(0);
-  const [modalProduct, setModalProduct] = useState(null);
+  const [detailProduct, setDetailProduct] = useState(null); // shopping detail modal
+  const [formProduct, setFormProduct] = useState(undefined); // undefined=closed, null=create, object=edit
   const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
@@ -58,7 +65,9 @@ export default function App() {
       window.history.replaceState(null, "", window.location.pathname);
     }
     if (api.isLoggedIn()) {
-      api.me().then((u) => { setUser(u); }).catch(() => api.logout());
+      api.me().then((u) => setUser(u)).catch(() => api.logout());
+    } else {
+      setView("auth");
     }
   }, [pushToast]);
 
@@ -86,9 +95,7 @@ export default function App() {
   // ---- actions ----
   function handleSearch(text) {
     clearTimeout(searchDebounce.current);
-    searchDebounce.current = setTimeout(
-      () => setFilters((f) => ({ ...f, search: text })), 300
-    );
+    searchDebounce.current = setTimeout(() => setFilters((f) => ({ ...f, search: text })), 300);
   }
 
   function requireAuth() {
@@ -101,7 +108,7 @@ export default function App() {
     if (!requireAuth()) return;
     try {
       setCart(await api.addToCart(product.id, quantity));
-      setModalProduct(null);
+      setDetailProduct(null);
       pushToast({ type: "info", title: "Added to cart", message: `${product.name} × ${quantity}` });
     } catch (err) {
       pushToast({ type: "info", title: "Couldn't add", message: err.message });
@@ -116,7 +123,7 @@ export default function App() {
     }
   }
 
-  async function checkout(paymentMethod = "stripe") {
+  async function checkout(paymentMethod) {
     setBusy(true);
     try {
       const result = await api.checkout(paymentMethod);
@@ -127,12 +134,9 @@ export default function App() {
         window.location.href = result.checkout_url; // Stripe hosted page
       } else {
         if (paymentMethod === "cash") {
-          pushToast({
-            type: "order",
-            title: "Order placed — cash on delivery",
-            message: `Transaction ref ${result.transaction_id}. Pay on delivery.`,
-          });
+          pushToast({ type: "order", title: "Order placed — cash on delivery", message: `Transaction ref ${result.transaction_id}. Pay on delivery.` });
         }
+        setCartOpen(false);
         setView("orders");
       }
     } catch (err) {
@@ -151,137 +155,132 @@ export default function App() {
     }
   }
 
+  async function saveProduct(data, id) {
+    const saved = id ? await api.updateProduct(id, data) : await api.createProduct(data);
+    setFormProduct(undefined);
+    loadProducts();
+    pushToast({ type: "info", title: id ? "Product updated" : "Product created", message: saved.name });
+  }
+
+  async function deleteProduct(product) {
+    if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteProduct(product.id);
+      setFormProduct(undefined);
+      loadProducts();
+      pushToast({ type: "info", title: "Deleted", message: `${product.name} removed from the catalog.` });
+    } catch (err) {
+      pushToast({ type: "info", title: "Delete failed", message: err.message });
+    }
+  }
+
   function logout() {
-    api.logout(); // revokes the refresh token server-side
+    api.logout();
     setUser(null);
     setCart(null);
     setOrders([]);
     setInvoices([]);
-    setView("shop");
+    setView("auth");
   }
 
   const cartCount = cart ? cart.items.reduce((sum, i) => sum + i.quantity, 0) : 0;
+  const notify = (title, message) => pushToast({ type: "info", title, message });
+
+  if (!user) {
+    return (
+      <>
+        <AuthPage onSuccess={async () => { setUser(await api.me()); setView("dashboard"); }} />
+        <div className="toasts">
+          {toasts.map((t) => (
+            <div key={t.id} className="toast">
+              <span>{TOAST_ICONS[t.type] || "🔔"}</span>
+              <div><div className="t">{t.title}</div><div className="m">{t.message}</div></div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  const manage = canManageProducts(user.role);
 
   return (
     <div className="shell">
-      <Header
+      <Topbar
         user={user}
         cartCount={cartCount}
-        view={view}
+        onOpenCart={() => setCartOpen(true)}
         onNavigate={setView}
         onSearch={handleSearch}
         onLogout={logout}
         notifRefresh={notifRefresh}
       />
 
-      <main className="main">
-        {view === "shop" && !filters.search && (
-          <section className="hero">
-            <h1>Everything you need, delivered smart.</h1>
-            <p>
-              Browse the catalog, pay by card or cash on delivery, and follow every order
-              live — from checkout to your doorstep.
-            </p>
-            <div className="hero-badges">
-              <span className="hero-badge">🚚 Free delivery</span>
-              <span className="hero-badge">💳 Stripe &amp; 💵 cash</span>
-              <span className="hero-badge">🔔 Live order tracking</span>
-            </div>
-          </section>
-        )}
+      <div className="layout">
+        <Sidebar user={user} view={view} onNavigate={setView} />
 
-        {view === "shop" && (
-          <div className="shop-layout">
-            <Filters filters={filters} setFilters={setFilters} />
-            <section>
-              <div className="toolbar">
-                <span className="count">
-                  {total} product{total === 1 ? "" : "s"}
-                  {filters.category ? ` in ${filters.category}` : ""}
-                </span>
-                <select
-                  value={filters.sort}
-                  onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}
-                >
-                  <option value="popularity">Most popular</option>
-                  <option value="price_asc">Price: low to high</option>
-                  <option value="price_desc">Price: high to low</option>
-                  <option value="newest">Newest</option>
-                </select>
-              </div>
-              {products.length === 0 ? (
-                <div className="panel empty">
-                  <div className="big">🔎</div>
-                  <h3>No products match</h3>
-                  <p>Try clearing some filters.</p>
-                </div>
-              ) : (
-                <div className="grid">
-                  {products.map((p) => (
-                    <ProductCard
-                      key={p.id}
-                      product={p}
-                      canAdd={Boolean(user)}
-                      onOpen={(prod) => { setModalProduct(prod); setQty(1); }}
-                      onAdd={(prod) => addToCart(prod, 1)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
+        <main className="main">
+          {view === "dashboard" && (
+            <DashboardPage user={user} products={products} cart={cart} orders={orders} onNavigate={setView} />
+          )}
 
-        {view === "cart" && (
-          <CartPage
-            cart={cart}
-            products={products}
-            onUpdateQty={updateQty}
-            onRemove={(id) => updateQty(id, 0)}
-            onCheckout={checkout}
-            onShop={() => setView("shop")}
-            busy={busy}
-          />
-        )}
+          {view === "products" && (
+            <ProductsPage
+              products={products}
+              total={total}
+              filters={filters}
+              setFilters={setFilters}
+              user={user}
+              canManage={manage}
+              onOpen={(p) => { setDetailProduct(p); setQty(1); }}
+              onAdd={(p) => addToCart(p, 1)}
+              onEdit={(p) => setFormProduct(p)}
+              onDelete={deleteProduct}
+              onCreate={() => setFormProduct(null)}
+            />
+          )}
 
-        {view === "orders" && (
-          <OrdersPage orders={orders} invoices={invoices} onPayNow={payNow} onShop={() => setView("shop")} />
-        )}
+          {view === "orders" && (
+            <OrdersPage
+              user={user}
+              orders={orders}
+              invoices={invoices}
+              canManage={manage}
+              onPayNow={payNow}
+              onShop={() => setView("products")}
+              notify={notify}
+            />
+          )}
 
-        {view === "admin" && user && (user.role === "admin" || user.role === "staff") && (
-          <AdminPage
-            user={user}
-            notify={(title, message) => pushToast({ type: "info", title, message })}
-          />
-        )}
+          {view === "payments" && <PaymentsPage user={user} orders={orders} notify={notify} />}
+          {view === "invoices" && <InvoicesPage user={user} />}
+        </main>
+      </div>
 
-        {view === "auth" && (
-          <AuthPage
-            onSuccess={async () => { setUser(await api.me()); setView("shop"); }}
-          />
-        )}
-      </main>
+      <footer className="footer">Smart E-Commerce Platform — FastAPI · Django · React · Stripe · MySQL</footer>
 
-      <footer className="footer">
-        Smart E-Commerce Platform — FastAPI · Django · React · Stripe · MySQL
-      </footer>
-
-      <ProductModal
-        product={modalProduct}
-        qty={qty}
-        setQty={setQty}
-        onClose={() => setModalProduct(null)}
-        onAdd={addToCart}
+      <CartDrawer
+        open={cartOpen}
+        cart={cart}
+        products={products}
+        onClose={() => setCartOpen(false)}
+        onUpdateQty={updateQty}
+        onRemove={(id) => updateQty(id, 0)}
+        onCheckout={checkout}
+        busy={busy}
       />
+
+      <ProductDetailModal product={detailProduct} qty={qty} setQty={setQty} onClose={() => setDetailProduct(null)} onAdd={addToCart} />
+
+      {formProduct !== undefined && (
+        <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSubmit={saveProduct} onDelete={deleteProduct} />
+      )}
 
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className="toast">
             <span>{TOAST_ICONS[t.type] || "🔔"}</span>
-            <div>
-              <div className="t">{t.title}</div>
-              <div className="m">{t.message}</div>
-            </div>
+            <div><div className="t">{t.title}</div><div className="m">{t.message}</div></div>
           </div>
         ))}
       </div>
