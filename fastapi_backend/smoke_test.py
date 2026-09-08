@@ -26,6 +26,7 @@ from sqlalchemy import text
 import seed
 from app.database import SessionLocal
 from app.main import app
+from app.security import create_access_token
 
 seed.seed()
 client = TestClient(app)
@@ -368,6 +369,29 @@ try:
     r = client.get("/auth/google/callback?code=bogus&state=bogus", follow_redirects=False)
     check("google callback rejects bad state",
           r.status_code in (302, 307) and "social_error" in r.headers.get("location", ""), r.text)
+
+    # ?json=1 opt-in: the callback should raise an HTTP error (JSON body) on
+    # failure instead of redirecting, when the login was started with it.
+    from app.security import create_oauth_state
+    json_state = create_oauth_state(want_json=True)
+    r = client.get(f"/auth/google/callback?code=bogus&state={json_state}", follow_redirects=False)
+    check("google callback (json mode) returns a JSON error instead of a redirect",
+          r.status_code == 401 and "detail" in r.json(), r.text)
+
+    # Facebook mock-email fallback: an account with no email gets a stable,
+    # schema-valid synthetic address rather than being blocked from logging in.
+    from app.routers.auth import _get_or_create_social_user, _mock_email
+    mock_email = _mock_email("facebook", "999999")
+    check("mock email is schema-valid", mock_email == "facebook_999999@facebook.example.com")
+    with SessionLocal() as fb_db:
+        fb_user = _get_or_create_social_user(fb_db, mock_email, "No Email User", "facebook")
+        fb_user_id, fb_user_email, fb_user_provider = fb_user.id, fb_user.email, fb_user.auth_provider
+    created_user_ids.append(fb_user_id)
+    check("facebook user with no real email was created with the synthetic one",
+          fb_user_email == mock_email and fb_user_provider == "facebook", fb_user_email)
+    r = client.get("/auth/me", headers={"Authorization": f"Bearer {create_access_token(fb_user_id, 'customer')}"})
+    check("that user's profile round-trips through the API (EmailStr accepts the synthetic address)",
+          r.status_code == 200 and r.json()["email"] == mock_email, r.text)
 
     print(f"\nAll {passed} checks passed.")
 finally:

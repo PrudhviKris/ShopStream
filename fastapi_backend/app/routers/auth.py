@@ -1,8 +1,9 @@
+import logging
 from datetime import datetime
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -23,11 +24,13 @@ from ..security import (
     create_access_token,
     create_oauth_state,
     create_refresh_token,
+    decode_oauth_state,
     decode_token,
     hash_password,
-    verify_oauth_state,
     verify_password,
 )
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_REDIRECT_URI = f"{settings.PUBLIC_URL}/api/auth/google/callback"
 FACEBOOK_REDIRECT_URI = f"{settings.PUBLIC_URL}/api/auth/facebook/callback"
@@ -139,24 +142,47 @@ def _verify_google_id_token(id_token: str) -> dict:
     return claims
 
 
-def _finish_social_login(db: Session, email: str, name: str, provider: str) -> RedirectResponse:
-    """Issue the JWT pair and hand it to the SPA via the URL fragment."""
+def _finish_social_login(db: Session, email: str, name: str, provider: str, want_json: bool):
+    """Issue the JWT pair.
+
+    want_json=True (opt in with ?json=1 on the /login redirect starter) returns
+    the pair as plain JSON — useful for testing the flow directly in a browser
+    or via a tool that follows redirects and can show you the response body.
+    Default (want_json=False) is what the app's own "Sign in with Google/Facebook"
+    button uses: redirect back to the SPA with the tokens in the URL fragment,
+    since a top-level browser navigation can't hand a fetch() caller a JSON body.
+    """
     user = _get_or_create_social_user(db, email, name, provider)
     pair = issue_tokens(db, user)
+    if want_json:
+        return pair
     fragment = urlencode(
         {"access_token": pair.access_token, "refresh_token": pair.refresh_token, "provider": provider}
     )
     return RedirectResponse(f"{settings.PUBLIC_URL}/#{fragment}")
 
 
-def _social_error(message: str) -> RedirectResponse:
+def _social_error(message: str, want_json: bool = False):
+    if want_json:
+        raise HTTPException(status_code=401, detail=message)
     return RedirectResponse(f"{settings.PUBLIC_URL}/#{urlencode({'social_error': message})}")
+
+
+def _mock_email(provider: str, external_id: str) -> str:
+    """Synthesize a stable, unique, schema-valid email for a social account that
+    didn't share a real one (e.g. a Facebook account with no email on file, or
+    one that never granted the email permission). example.com is IANA-reserved
+    for documentation and never resolves — nothing gets sent there."""
+    return f"{provider}_{external_id}@{provider}.example.com"
 
 
 # Browser flow (redirect URIs registered in the Google console):
 #   {PUBLIC_URL}/api/auth/google/callback
+# Pass ?json=1 to get the token pair back as JSON instead of a redirect to the
+# SPA — handy for testing the flow directly (e.g. open the /login URL in a
+# browser tab and read the JSON the callback lands on).
 @router.get("/google/login")
-def google_oauth_start():
+def google_oauth_start(json: bool = Query(default=False)):
     if not (settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET):
         raise HTTPException(status_code=503, detail="Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
     params = {
@@ -164,20 +190,23 @@ def google_oauth_start():
         "redirect_uri": GOOGLE_REDIRECT_URI,
         "response_type": "code",
         "scope": "openid email profile",
-        "state": create_oauth_state(),
+        "state": create_oauth_state(want_json=json),
         "prompt": "select_account",
     }
     return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", response_model=None)
 def google_oauth_callback(
     code: str = None, state: str = None, error: str = None, db: Session = Depends(get_db)
 ):
+    state_payload = decode_oauth_state(state)
+    want_json = bool(state_payload and state_payload.get("json"))
+
     if error or not code:
-        return _social_error(error or "Google login was cancelled")
-    if not verify_oauth_state(state):
-        return _social_error("Login session expired, please try again")
+        return _social_error(error or "Google login was cancelled", want_json)
+    if state_payload is None:
+        return _social_error("Login session expired, please try again", want_json)
     try:
         with httpx.Client(timeout=15) as client:
             token_resp = client.post(
@@ -190,14 +219,17 @@ def google_oauth_callback(
                     "grant_type": "authorization_code",
                 },
             ).json()
+            if "id_token" not in token_resp:
+                raise RuntimeError(f"Google token exchange failed: {token_resp}")
         claims = _verify_google_id_token(token_resp["id_token"])
     except Exception:
-        return _social_error("Google login failed, please try again")
+        logger.exception("Google OAuth callback failed")  # full traceback in the server console
+        return _social_error("Google login failed, please try again", want_json)
 
     email = (claims.get("email") or "").lower()
     if not email or not claims.get("email_verified", False):
-        return _social_error("Google account has no verified email")
-    return _finish_social_login(db, email, claims.get("name", ""), "google")
+        return _social_error("Google account has no verified email", want_json)
+    return _finish_social_login(db, email, claims.get("name", ""), "google", want_json)
 
 
 # Token-verification flow (SPA obtains an ID token via Google Identity Services)
@@ -208,6 +240,7 @@ def google_token_login(body: SocialLoginRequest, db: Session = Depends(get_db)):
     try:
         claims = _verify_google_id_token(body.id_token)
     except Exception:
+        logger.exception("Google ID token verification failed")
         raise HTTPException(status_code=401, detail="Invalid Google ID token")
     email = (claims.get("email") or "").lower()
     if not email or not claims.get("email_verified", False):
@@ -220,7 +253,7 @@ def google_token_login(body: SocialLoginRequest, db: Session = Depends(get_db)):
 # Browser flow (redirect URI registered under Facebook Login > Settings >
 # Valid OAuth Redirect URIs):  {PUBLIC_URL}/api/auth/facebook/callback
 @router.get("/facebook/login")
-def facebook_oauth_start():
+def facebook_oauth_start(json: bool = Query(default=False)):
     if not (settings.FACEBOOK_APP_ID and settings.FACEBOOK_APP_SECRET):
         raise HTTPException(status_code=503, detail="Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET.")
     params = {
@@ -228,19 +261,22 @@ def facebook_oauth_start():
         "redirect_uri": FACEBOOK_REDIRECT_URI,
         "response_type": "code",
         "scope": "email,public_profile",
-        "state": create_oauth_state(),
+        "state": create_oauth_state(want_json=json),
     }
     return RedirectResponse("https://www.facebook.com/v19.0/dialog/oauth?" + urlencode(params))
 
 
-@router.get("/facebook/callback")
+@router.get("/facebook/callback", response_model=None)
 def facebook_oauth_callback(
     code: str = None, state: str = None, error: str = None, db: Session = Depends(get_db)
 ):
+    state_payload = decode_oauth_state(state)
+    want_json = bool(state_payload and state_payload.get("json"))
+
     if error or not code:
-        return _social_error(error or "Facebook login was cancelled")
-    if not verify_oauth_state(state):
-        return _social_error("Login session expired, please try again")
+        return _social_error(error or "Facebook login was cancelled", want_json)
+    if state_payload is None:
+        return _social_error("Login session expired, please try again", want_json)
     try:
         with httpx.Client(timeout=15) as client:
             token_resp = client.get(
@@ -252,17 +288,21 @@ def facebook_oauth_callback(
                     "code": code,
                 },
             ).json()
+            if "access_token" not in token_resp:
+                raise RuntimeError(f"Facebook token exchange failed: {token_resp}")
             profile = client.get(
                 "https://graph.facebook.com/me",
                 params={"fields": "id,name,email", "access_token": token_resp["access_token"]},
             ).json()
     except Exception:
-        return _social_error("Facebook login failed, please try again")
+        logger.exception("Facebook OAuth callback failed")  # full traceback in the server console
+        return _social_error("Facebook login failed, please try again", want_json)
 
-    email = (profile.get("email") or "").lower()
-    if not email:
-        return _social_error("Facebook account has no email (grant the email permission)")
-    return _finish_social_login(db, email, profile.get("name", ""), "facebook")
+    # Some Facebook accounts have no email on file, or the person declined the
+    # email permission. Rather than block login, fall back to a synthetic,
+    # stable, unique email tied to their Facebook user id.
+    email = (profile.get("email") or "").lower() or _mock_email("facebook", profile["id"])
+    return _finish_social_login(db, email, profile.get("name", ""), "facebook", want_json)
 
 
 # Token-verification flow (SPA obtains an access token via the FB JS SDK)
@@ -290,13 +330,11 @@ def facebook_login(body: FacebookLoginRequest, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception:
+        logger.exception("Facebook access token verification failed")
         raise HTTPException(status_code=401, detail="Invalid Facebook access token")
 
-    email = (profile.get("email") or "").lower()
-    if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="Facebook account has no email (grant the email permission)",
-        )
+    # See the callback flow above: some Facebook accounts have no email on
+    # file, or declined the permission — use a synthetic one rather than block.
+    email = (profile.get("email") or "").lower() or _mock_email("facebook", profile["id"])
     user = _get_or_create_social_user(db, email, profile.get("name", ""), "facebook")
     return issue_tokens(db, user)

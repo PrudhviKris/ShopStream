@@ -21,7 +21,12 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def _create_token(
-    user_id: int, role: str, token_type: str, expires_delta: timedelta, jti: Optional[str] = None
+    user_id: int,
+    role: str,
+    token_type: str,
+    expires_delta: timedelta,
+    jti: Optional[str] = None,
+    extra: Optional[dict] = None,
 ) -> str:
     now = datetime.utcnow()
     payload = {
@@ -33,6 +38,8 @@ def _create_token(
     }
     if jti:
         payload["jti"] = jti
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -50,13 +57,26 @@ def create_refresh_token(user_id: int, role: str) -> tuple[str, str, datetime]:
     return token, jti, datetime.utcnow() + delta
 
 
-def create_oauth_state() -> str:
-    """Short-lived CSRF token carried through the OAuth redirect round-trip."""
-    return _create_token(0, "none", "oauth_state", timedelta(minutes=10))
+def create_oauth_state(want_json: bool = False) -> str:
+    """Short-lived CSRF token carried through the OAuth redirect round-trip.
+
+    want_json rides along in the token itself (Google/Facebook echo `state`
+    back unchanged), so the callback knows — without any other state — whether
+    to redirect the browser to the SPA (normal "Sign in with Google" button)
+    or return the token pair as plain JSON (manual/API testing).
+    """
+    return _create_token(0, "none", "oauth_state", timedelta(minutes=10), extra={"json": want_json})
+
+
+def decode_oauth_state(state: Optional[str]) -> Optional[dict]:
+    """Return the decoded state payload if valid, else None."""
+    if not state:
+        return None
+    return decode_token(state, expected_type="oauth_state")
 
 
 def verify_oauth_state(state: Optional[str]) -> bool:
-    return bool(state) and decode_token(state, expected_type="oauth_state") is not None
+    return decode_oauth_state(state) is not None
 
 
 def decode_token(token: str, expected_type: str = "access") -> Optional[dict]:
