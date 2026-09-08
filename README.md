@@ -16,7 +16,7 @@ Full-stack e-commerce system with three services:
 cd fastapi_backend
 pip install -r requirements.txt
 cp .env.example .env        # set MYSQL_PASSWORD here (see Database below)
-python seed.py              # admin/staff/customer demo users + 12 products
+python seed.py              # role reference table + 12 sample products (no user accounts)
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -42,13 +42,24 @@ The Django service reads the same `.env`, so both services share one MySQL datab
 If `MYSQL_PASSWORD` is not set, both services fall back to a local SQLite file so
 the project still runs.
 
-Seeded logins:
+### User accounts & roles
 
-| Role | Email | Password |
-|---|---|---|
-| admin | admin@example.com | AdminPass123! |
-| staff | staff@example.com | StaffPass123! |
-| customer | customer@example.com | CustomerPass123! |
+There are **no built-in accounts**. Every user — email/password registration or
+Google/Facebook login — is always created with role **customer**; that is the
+only role the application ever assigns itself. To make someone staff or admin,
+promote them by hand directly in MySQL:
+
+```sql
+UPDATE users SET role = 'admin'    WHERE email = 'someone@example.com';
+UPDATE users SET role = 'staff'    WHERE email = 'someone@example.com';
+UPDATE users SET role = 'customer' WHERE email = 'someone@example.com';  -- demote
+```
+
+This takes effect on the user's very next request — no re-login needed, since
+every request re-reads the role from the database rather than trusting the JWT.
+The `role` column is a native MySQL `ENUM('admin','staff','customer')`, so the
+database itself refuses any value outside those three; there is no way — through
+the API, the admin panel, or a raw SQL edit — to introduce a fourth role.
 
 ### 2. Django admin panel
 
@@ -69,6 +80,8 @@ the FastAPI service in the same MySQL database (credentials come from
 
 ### 3. Frontend
 
+For live-reload development:
+
 ```bash
 cd frontend
 npm install
@@ -76,6 +89,20 @@ npm run dev
 ```
 
 http://localhost:3000 — login, browse, add to cart, checkout, live notification toasts.
+Requests to `/api/*` (including the notifications WebSocket) are proxied to the
+FastAPI backend on port 8000.
+
+For a single-URL setup matching the backend's own port — the same layout as
+`/docs` for Swagger — build the frontend and let FastAPI serve it:
+
+```bash
+cd frontend
+npm run build
+```
+
+Then **http://127.0.0.1:8000/** serves the storefront and **http://127.0.0.1:8000/docs**
+stays Swagger UI, from the one running `uvicorn` process. Rerun `npm run build`
+after any frontend change to refresh it.
 
 ## Features by milestone
 
@@ -177,5 +204,8 @@ origins stable.
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
-- `fastapi_backend/smoke_test.py` — 39 end-to-end checks (auth, RBAC, filters, cart math,
-  checkout, payment, WebSocket push) against the configured database: `python smoke_test.py`
+- `fastapi_backend/smoke_test.py` — 90 end-to-end checks (auth, role promotion via direct
+  MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, WebSocket
+  push) against the configured database: `python smoke_test.py`. It registers its own
+  throwaway users and deletes them again when it finishes, so it never leaves demo data
+  behind.

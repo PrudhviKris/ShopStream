@@ -1,10 +1,22 @@
-# """Seed the database with an admin user, a staff user, and sample products.
+"""Seed the database with the role reference table and sample products.
 
-# Run:  python seed.py
-# """
+Run:  python seed.py
+
+No demo user accounts are created here. Every user — local registration or
+Google/Facebook login — is always created with role "customer" (see
+app/routers/auth.py). To make someone staff or admin, update their row
+directly in MySQL:
+
+    UPDATE users SET role = 'admin' WHERE email = 'someone@example.com';
+    UPDATE users SET role = 'staff' WHERE email = 'someone@example.com';
+    UPDATE users SET role = 'customer' WHERE email = 'someone@example.com';  -- demote
+
+The `role` column is a native MySQL ENUM('admin','staff','customer'), so the
+database itself rejects any other value — there is no way to introduce a
+fourth role by editing this column.
+"""
 from app.database import Base, SessionLocal, engine
-from app.models import Product, Role, User, UserRole
-from app.security import hash_password
+from app.models import Product, Role
 
 Base.metadata.create_all(bind=engine)
 
@@ -29,12 +41,6 @@ PRODUCTS = [
     ("Dumbbell Set", "Adjustable dumbbell set 2x10kg", "sports", 64.99, 25, 130),
 ]
 
-USERS = [
-    ("Admin User", "admin@example.com", "AdminPass123!", UserRole.admin),
-    ("Staff User", "staff@example.com", "StaffPass123!", UserRole.staff),
-    ("Demo Customer", "customer@example.com", "CustomerPass123!", UserRole.customer),
-]
-
 
 def seed() -> None:
     db = SessionLocal()
@@ -45,18 +51,6 @@ def seed() -> None:
                 db.add(Role(name=name, description=description))
             else:
                 existing.description = description
-
-        for name, email, password, role in USERS:
-            if not db.query(User).filter(User.email == email).first():
-                db.add(
-                    User(
-                        name=name,
-                        email=email,
-                        password_hash=hash_password(password),
-                        role=role,
-                    )
-                )
-                print(f"Created {role.value}: {email} / {password}")
 
         if db.query(Product).count() == 0:
             for name, desc, category, price, stock, popularity in PRODUCTS:
@@ -73,7 +67,8 @@ def seed() -> None:
                 )
             print(f"Created {len(PRODUCTS)} products")
         db.commit()
-        print("Seed complete.")
+        print("Seed complete. No demo users created — register through the app, "
+              "then promote a user's role directly in MySQL if needed.")
     finally:
         db.close()
 

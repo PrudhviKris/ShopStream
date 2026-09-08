@@ -78,7 +78,7 @@ export default function AuthPage({ onSuccess }) {
           )}
         </div>
 
-        <p className="demo-note">Demo login: customer@example.com / CustomerPass123!</p>
+        <p className="demo-note">New accounts start as customers — ask an admin to promote yours.</p>
       </div>
     </div>
   );
