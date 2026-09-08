@@ -30,7 +30,7 @@ class Product(models.Model):
     category = models.CharField(max_length=100)
     price = models.FloatField()
     stock = models.IntegerField()
-    images = models.JSONField(default=list)
+    images = models.JSONField(default=list, blank=True)  # empty photo list is valid
     popularity = models.IntegerField(default=0)
     created_at = models.DateTimeField()
 

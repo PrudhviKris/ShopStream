@@ -106,3 +106,6 @@ USE_TZ = False  # store timestamps are naive UTC (matches FastAPI)
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Creates tables for the unmanaged store models inside the test database.
+TEST_RUNNER = "ecommerce_admin.test_runner.UnmanagedModelTestRunner"
