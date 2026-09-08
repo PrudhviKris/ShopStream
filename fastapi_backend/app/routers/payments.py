@@ -11,14 +11,16 @@ from ..models import Invoice, Order, OrderStatus, Payment, PaymentStatus, User, 
 from ..schemas import AdminPaymentOut, PaymentOut
 from ..services import stripe_service
 from ..services.notification_service import notify
+from ..services.sequence_service import next_sequence_value
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 def _issue_invoice(db: Session, order: Order) -> Invoice:
+    invoice_number = next_sequence_value(db, "invoice_number")
     invoice = Invoice(
-        invoice_number=f"INV-{datetime.utcnow():%Y}-{order.id:05d}",
+        invoice_number=f"INV-{datetime.utcnow():%Y}-{invoice_number:05d}",
         order_id=order.id,
         user_id=order.user_id,
         subtotal=order.subtotal,

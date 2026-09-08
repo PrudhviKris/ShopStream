@@ -11,6 +11,7 @@ from ..models import CartItem, Order, OrderItem, Payment, PaymentStatus, User
 from ..schemas import CheckoutResponse
 from ..services import stripe_service
 from ..services.notification_service import notify
+from ..services.sequence_service import next_sequence_value
 
 router = APIRouter(tags=["Checkout"])
 
@@ -54,7 +55,8 @@ def checkout(
     total = round(subtotal + tax, 2)
 
     # 3. Create order with line-item snapshots, reserve stock
-    order = Order(user_id=user.id, subtotal=subtotal, tax=tax, total=total)
+    order_number = next_sequence_value(db, "order_number")
+    order = Order(user_id=user.id, subtotal=subtotal, tax=tax, total=total, order_number=order_number)
     db.add(order)
     db.flush()
 

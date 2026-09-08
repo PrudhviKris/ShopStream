@@ -52,6 +52,8 @@ def register(email, name, password="SmokePass123!"):
     me = client.get("/auth/me", headers=auth).json()
     created_user_ids.append(me["id"])
     check(f"{name} defaults to role=customer on registration", me["role"] == "customer", str(me))
+    check(f"{name} was assigned a gapless customer_number",
+          isinstance(me.get("customer_number"), int) and me["customer_number"] > 0, str(me))
     return tokens, auth, me["id"]
 
 
@@ -61,6 +63,26 @@ def set_role_in_mysql(user_id: int, role: str) -> None:
     """
     with SessionLocal() as db:
         db.execute(text("UPDATE users SET role = :role WHERE id = :id"), {"role": role, "id": user_id})
+        db.commit()
+
+
+def snapshot_sequences():
+    """Capture the gapless-sequence counters before this run touches them, so
+    cleanup can put them back — otherwise every test run would permanently
+    burn real order/invoice/customer numbers, silently drifting the sequence
+    real customers see even though no real activity happened."""
+    with SessionLocal() as db:
+        return dict(db.execute(text("SELECT name, value FROM sequences")).fetchall())
+
+
+def restore_sequences(before: dict):
+    with SessionLocal() as db:
+        for name, value in before.items():
+            db.execute(text("UPDATE sequences SET value = :v WHERE name = :n"), {"v": value, "n": name})
+        # Any sequence that didn't exist yet before this run (fresh database) -> remove it.
+        after = dict(db.execute(text("SELECT name, value FROM sequences")).fetchall())
+        for name in set(after) - set(before):
+            db.execute(text("DELETE FROM sequences WHERE name = :n"), {"n": name})
         db.commit()
 
 
@@ -94,6 +116,8 @@ STAFF_EMAIL = f"smoke-staff-{RUN_ID}@example.com"
 # uniqueness constraint and any number of users can share a role.
 ADMIN2_EMAIL = f"smoke-admin2-{RUN_ID}@example.com"
 STAFF2_EMAIL = f"smoke-staff2-{RUN_ID}@example.com"
+
+sequences_before = snapshot_sequences()
 
 try:
     # ---- Auth: register -> always customer; login; refresh rotation; logout ----
@@ -382,6 +406,7 @@ try:
     r = client.post("/cart/add", json={"product_id": 9, "quantity": 2}, headers=auth)
     r = client.post("/checkout?payment_method=cash", headers=auth)
     del_order = r.json()["order_id"]
+    del_order_number = client.get(f"/orders/{del_order}", headers=auth).json()["order_number"]
     payment_id = client.get(f"/payments/{del_order}", headers=auth).json()["id"]
     check("customer cannot delete payment",
           client.delete(f"/payments/{payment_id}", headers=auth).status_code == 403)
@@ -397,6 +422,17 @@ try:
     check("order gone", client.get(f"/orders/{del_order}", headers=auth).status_code == 404)
     check("stock restored after order delete",
           client.get("/products/9").json()["stock"] == stock_before_del + 2)
+
+    # Deleting an order must NOT free up its order_number for reuse — the next
+    # order placed should continue the sequence, not fill the gap. This is the
+    # whole point of a dedicated sequence table over MySQL's own AUTO_INCREMENT.
+    r = client.post("/cart/add", json={"product_id": 1, "quantity": 1}, headers=auth)
+    r = client.post("/checkout?payment_method=cash", headers=auth)
+    next_order_id = r.json()["order_id"]
+    next_order_number = client.get(f"/orders/{next_order_id}", headers=auth).json()["order_number"]
+    check("order_number is gapless and never reused after a delete",
+          next_order_number == del_order_number + 1,
+          f"deleted order was #{del_order_number}, next order got #{next_order_number}")
 
     # ---- Google ID token clock-skew tolerance (regression test) ----
     # Found live: a real Google login failed with jwt.exceptions.ImmatureSignature
@@ -491,4 +527,6 @@ try:
     print(f"\nAll {passed} checks passed.")
 finally:
     cleanup(created_user_ids)
-    print(f"Cleaned up {len(created_user_ids)} smoke-test user(s) and their data — MySQL left as it was.")
+    restore_sequences(sequences_before)
+    print(f"Cleaned up {len(created_user_ids)} smoke-test user(s) and their data — MySQL left as it was, "
+          f"including order/invoice/customer sequence counters.")

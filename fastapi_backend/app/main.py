@@ -13,11 +13,7 @@ from .services.notification_service import manager
 
 
 class ApiPrefixMiddleware:
-    """Accept requests with or without a leading /api prefix (HTTP + WebSocket).
-
-    The Vite dev server proxies '/api/*' here; when FastAPI serves the built
-    frontend itself, the SPA's '/api/*' calls arrive directly. Both work.
-    """
+    
 
     def __init__(self, app):
         self.app = app
@@ -102,10 +98,6 @@ def health():
     return {"service": settings.APP_NAME, "version": settings.API_VERSION, "status": "ok"}
 
 
-# ---------- Serve the built frontend (frontend/dist) at / ----------
-# `npm run build` in frontend/ produces dist/; with it present:
-#   http://127.0.0.1:8000/      -> the storefront SPA
-#   http://127.0.0.1:8000/docs  -> Swagger UI (API routes keep priority)
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")

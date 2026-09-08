@@ -29,6 +29,7 @@ from ..security import (
     hash_password,
     verify_password,
 )
+from ..services.sequence_service import next_sequence_value
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def _get_or_create_social_user(db: Session, email: str, name: str, provider: str
             password_hash=None,
             role=UserRole.customer,
             auth_provider=provider,
+            customer_number=next_sequence_value(db, "customer_number"),
         )
         db.add(user)
         db.commit()
@@ -77,6 +79,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         password_hash=hash_password(body.password),
         role=UserRole.customer,
         auth_provider="local",
+        customer_number=next_sequence_value(db, "customer_number"),
     )
     db.add(user)
     db.commit()

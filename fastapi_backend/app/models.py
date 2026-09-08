@@ -50,6 +50,10 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.customer, nullable=False)
     auth_provider = Column(String(50), default="local")  # local / google / facebook
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Friendly, gapless "Customer #N" for display — distinct from id (the real
+    # primary key, which JWTs and every foreign key reference and must never
+    # be renumbered or reused). Assigned in creation order via Sequence.
+    customer_number = Column(Integer, unique=True, index=True, nullable=True)
 
     cart_items = relationship("CartItem", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user")
@@ -87,6 +91,9 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Friendly, gapless "Order #N" for display — distinct from id. See
+    # User.customer_number for why id itself is never renumbered.
+    order_number = Column(Integer, unique=True, index=True, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     subtotal = Column(Float, nullable=False)
     tax = Column(Float, default=0.0)
@@ -128,6 +135,29 @@ class Payment(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     order = relationship("Order", back_populates="payment")
+
+    @property
+    def order_number(self):
+        """The related order's friendly display number, for API responses
+        that show "Order #N" alongside a payment (kept consistent with the
+        Orders page rather than showing the raw order_id)."""
+        return self.order.order_number if self.order else None
+
+
+class Sequence(Base):
+    """Backs gapless, sequential display numbers (order/invoice/customer #).
+
+    Unlike a MySQL AUTO_INCREMENT column, a delete or a rolled-back
+    transaction never advances this counter — it only moves forward when a
+    creation actually commits, so "Order #7" always means the 7th order ever
+    successfully placed, with no numbers silently burned by test data or
+    failed attempts.
+    """
+
+    __tablename__ = "sequences"
+
+    name = Column(String(50), primary_key=True)
+    value = Column(Integer, nullable=False, default=0)
 
 
 class Role(Base):
@@ -174,6 +204,10 @@ class Invoice(Base):
 
     order = relationship("Order")
     user = relationship("User")
+
+    @property
+    def order_number(self):
+        return self.order.order_number if self.order else None
 
 
 class Notification(Base):

@@ -42,6 +42,7 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    customer_number: Optional[int] = None  # friendly "Customer #N", gapless
     name: str
     email: EmailStr
     role: UserRole
@@ -140,6 +141,7 @@ class PaymentOut(BaseModel):
 
     id: int
     order_id: int
+    order_number: Optional[int] = None  # the paid order's friendly number
     amount: float
     currency: str
     payment_method: str
@@ -152,6 +154,7 @@ class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    order_number: Optional[int] = None  # friendly "Order #N", gapless from creation
     user_id: int
     subtotal: float
     tax: float
@@ -184,6 +187,7 @@ class InvoiceOut(BaseModel):
     id: int
     invoice_number: str
     order_id: int
+    order_number: Optional[int] = None
     user_id: int
     subtotal: float
     tax: float

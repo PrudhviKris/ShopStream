@@ -37,7 +37,7 @@ function MyOrders({ orders, invoices, onPayNow, onShop }) {
       {orders.map((order) => (
         <div className="order" key={order.id}>
           <div className="order-head">
-            <span className="id">Order #{order.id}</span>
+            <span className="id">Order #{order.order_number ?? order.id}</span>
             <span className="date">{new Date(order.created_at + "Z").toLocaleString()}</span>
             <span className={`badge ${order.order_status}`}>{order.order_status}</span>
             <span className={`badge ${order.payment_status}`}>payment: {order.payment_status}</span>
@@ -94,7 +94,7 @@ function AllOrders({ user, notify }) {
         <tbody>
           {orders.map((o) => (
             <tr key={o.id}>
-              <td>#{o.id}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
+              <td>#{o.order_number ?? o.id}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
               <td>{o.user_name}<div className="sub">{o.user_email}</div></td>
               <td>{o.items.map((i) => `${i.product_name} × ${i.quantity}`).join(", ")}</td>
               <td>${o.total.toFixed(2)}</td>

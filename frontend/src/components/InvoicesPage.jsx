@@ -34,7 +34,7 @@ export default function InvoicesPage({ user }) {
               {invoices.map((inv) => (
                 <tr key={inv.id}>
                   <td className="mono">{inv.invoice_number}</td>
-                  <td>#{inv.order_id}</td>
+                  <td>#{inv.order_number ?? inv.order_id}</td>
                   {admin && <td>{inv.user_name}<div className="sub">{inv.user_email}</div></td>}
                   <td>{inv.subtotal.toFixed(2)}</td>
                   <td>{inv.tax.toFixed(2)}</td>

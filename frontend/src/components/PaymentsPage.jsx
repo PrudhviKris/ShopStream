@@ -14,7 +14,7 @@ function MyPayments({ orders }) {
           {payments.map((p) => (
             <tr key={p.id}>
               <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
-              <td>#{p.order_id}</td>
+              <td>#{p.order_number ?? p.order_id}</td>
               <td>{p.currency.toUpperCase()} {p.amount.toFixed(2)}</td>
               <td><span className={`badge ${p.payment_method}`}>{p.payment_method}</span></td>
               <td className="mono">{p.transaction_id}</td>
@@ -46,7 +46,7 @@ function AllPayments({ notify }) {
           {payments.map((p) => (
             <tr key={p.id}>
               <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
-              <td>#{p.order_id}</td>
+              <td>#{p.order_number ?? p.order_id}</td>
               <td>{p.user_name}<div className="sub">{p.user_email}</div></td>
               <td>{p.currency.toUpperCase()} {p.amount.toFixed(2)}</td>
               <td><span className={`badge ${p.payment_method}`}>{p.payment_method}</span></td>
