@@ -88,6 +88,10 @@ RUN_ID = uuid.uuid4().hex[:8]
 CUSTOMER_EMAIL = f"smoke-customer-{RUN_ID}@example.com"
 ADMIN_EMAIL = f"smoke-admin-{RUN_ID}@example.com"
 STAFF_EMAIL = f"smoke-staff-{RUN_ID}@example.com"
+# A second admin and second staff account — proves the role column has no
+# uniqueness constraint and any number of users can share a role.
+ADMIN2_EMAIL = f"smoke-admin2-{RUN_ID}@example.com"
+STAFF2_EMAIL = f"smoke-staff2-{RUN_ID}@example.com"
 
 try:
     # ---- Auth: register -> always customer; login; refresh rotation; logout ----
@@ -172,6 +176,27 @@ try:
     check("customer cannot update product",
           client.put(f"/products/{rbac_id}", json={"price": 1.0}, headers=auth).status_code == 403)
     check("staff can delete product", client.delete(f"/products/{rbac_id}", headers=staff_auth).status_code == 204)
+
+    # ---- Multiple admins and multiple staff — the role column has no
+    # uniqueness constraint, so any number of users may share a role ----
+    admin2_tokens, admin2_auth, admin2_id = register(ADMIN2_EMAIL, "Smoke Admin Two")
+    staff2_tokens, staff2_auth, staff2_id = register(STAFF2_EMAIL, "Smoke Staff Two")
+    set_role_in_mysql(admin2_id, "admin")
+    set_role_in_mysql(staff2_id, "staff")
+    check("a second admin account works independently",
+          client.get("/auth/me", headers=admin2_auth).json()["role"] == "admin"
+          and client.get("/orders/all", headers=admin2_auth).status_code == 200)
+    r = client.post("/products", json=new_product, headers=staff2_auth)
+    check("a second staff account works independently",
+          client.get("/auth/me", headers=staff2_auth).json()["role"] == "staff" and r.status_code == 201, r.text)
+    client.delete(f"/products/{r.json()['id']}", headers=staff2_auth)  # leave no test debris in the catalog
+    id_list = ",".join(str(i) for i in created_user_ids)
+    with SessionLocal() as _db:
+        role_counts = dict(_db.execute(
+            text(f"SELECT role, COUNT(*) FROM users WHERE id IN ({id_list}) GROUP BY role")
+        ).fetchall())
+    check("two admins and two staff coexist among this run's users",
+          role_counts.get("admin", 0) == 2 and role_counts.get("staff", 0) == 2, str(role_counts))
 
     # ---- Cart ----
     r = client.post("/cart/add", json={"product_id": 1, "quantity": 2}, headers=auth)
