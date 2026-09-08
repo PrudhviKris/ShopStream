@@ -18,6 +18,22 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+# Values copied verbatim from .env.example mean "not configured yet".
+_PLACEHOLDERS = {
+    "your-mysql-root-password",
+    "sk_test_...",
+    "whsec_...",
+    "generate-a-long-random-secret",
+    "your-google-client-id.apps.googleusercontent.com",
+    "your-facebook-app-id",
+    "your-facebook-app-secret",
+}
+
+
+def _env(key: str, default: str = "") -> str:
+    value = os.getenv(key, default)
+    return default if value in _PLACEHOLDERS else value
+
 
 class Settings:
     APP_NAME = "Smart E-Commerce Platform"
@@ -30,34 +46,39 @@ class Settings:
     MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
     MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
     MYSQL_USER = os.getenv("MYSQL_USER", "root")
-    MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+    MYSQL_PASSWORD = _env("MYSQL_PASSWORD")
     MYSQL_DB = os.getenv("MYSQL_DB", "ecommerce")
 
     if os.getenv("DATABASE_URL"):
         DATABASE_URL = os.environ["DATABASE_URL"]
     elif MYSQL_PASSWORD:
+        from urllib.parse import quote_plus
+
+        # quote_plus: passwords may contain URL-special characters like @ or /
         DATABASE_URL = (
-            f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"
+            f"mysql+pymysql://{quote_plus(MYSQL_USER)}:{quote_plus(MYSQL_PASSWORD)}"
             f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}?charset=utf8mb4"
         )
     else:
         DATABASE_URL = f"sqlite:///{(BASE_DIR / 'ecommerce.db').as_posix()}"
 
     # JWT
-    JWT_SECRET_KEY = os.getenv(
+    JWT_SECRET_KEY = _env(
         "JWT_SECRET_KEY", "dev-only-insecure-secret-change-me-in-production-0123456789"
     )
     JWT_ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
-    # Auth0 social login (Google / Facebook are enabled inside the Auth0 dashboard)
-    AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "")            # e.g. your-tenant.us.auth0.com
-    AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")      # SPA / native app client id
+    # Direct Google Sign-In (console.cloud.google.com -> APIs & Services -> Credentials)
+    GOOGLE_CLIENT_ID = _env("GOOGLE_CLIENT_ID")
+    # Direct Facebook Login (developers.facebook.com -> your app)
+    FACEBOOK_APP_ID = _env("FACEBOOK_APP_ID")
+    FACEBOOK_APP_SECRET = _env("FACEBOOK_APP_SECRET")
 
     # Stripe
-    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_SECRET_KEY = _env("STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET = _env("STRIPE_WEBHOOK_SECRET")
     STRIPE_CURRENCY = os.getenv("STRIPE_CURRENCY", "usd")
     CHECKOUT_SUCCESS_URL = os.getenv("CHECKOUT_SUCCESS_URL", "http://localhost:3000/checkout/success")
     CHECKOUT_CANCEL_URL = os.getenv("CHECKOUT_CANCEL_URL", "http://localhost:3000/checkout/cancel")

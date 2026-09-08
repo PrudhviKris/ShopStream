@@ -80,9 +80,19 @@ http://localhost:3000 — login, browse, add to cart, checkout, live notificatio
 ## Features by milestone
 
 **Auth & RBAC** — email/password register + login, pbkdf2 password hashing, JWT access
-(30 min) + refresh (7 days) tokens, `GET /auth/me`, Auth0 social login
-(`POST /auth/social/auth0` verifies the Google/Facebook ID token against the tenant JWKS
-and auto-provisions the user), roles admin/staff/customer enforced via `require_roles` dependency.
+(30 min) + refresh (7 days) tokens, `GET /auth/me`. Every login (local **and** social)
+issues a token pair; refresh tokens are persisted in the `refresh_tokens` table with
+rotation (single-use) and revocation (`POST /auth/logout`). Social login endpoints for
+global users: `POST /auth/social/google` (Google Identity Services ID token) and
+`POST /auth/social/facebook` (FB JS SDK access token) — each verifies the provider
+token, auto-provisions the user, and returns the platform's own JWT pair.
+Roles (stored in the `roles` table, enforced via `require_roles`):
+
+| Role | Can |
+|---|---|
+| **admin** | Everything: shop & buy, manage products, see every customer's orders / payments / invoices, update order statuses, view roles |
+| **staff** | Shop & buy, manage products (create / rename / price / stock / photos / delete), update order statuses |
+| **customer** | Shop only: browse, cart, checkout, pay, view their own orders & invoices |
 
 **Catalog & cart** — product list with category / price-range / stock / search filters and
 popularity / price / newest sorting, pagination, per-user cart with stock validation and
@@ -103,18 +113,57 @@ REST: `GET /notifications`, `PUT /notifications/{id}/read`, `PUT /notifications/
 **Order lifecycle** — pending → paid → shipped → delivered (or cancelled), invalid
 transitions rejected; staff/admin update statuses, customers get notified in real time.
 
+**Invoices** — issued automatically when a payment succeeds (`invoices` table,
+numbers like `INV-2026-00001`). Customers see their own (`GET /invoices`); admins see
+everyone's (`GET /invoices/all`) plus all payments (`GET /payments/all`) and all orders
+with customer identity (`GET /orders/all`).
+
+**Admin panel (frontend)** — staff/admin get a ⚙️ Store management view: inline product
+editing (rename, category, price, stock, photo URL), create and delete products, and
+order-status management; admins additionally get Payments and Invoices tabs across all
+customers. The Django admin at port 8001 mirrors this over the same MySQL database.
+
+## Social login setup (Google / Facebook)
+
+Provider keys cannot be generated locally — create them once in each console and paste
+into `fastapi_backend/.env`:
+
+1. **Google** — https://console.cloud.google.com/apis/credentials → Create credentials →
+   OAuth client ID → Web application → add `http://localhost:3000` to authorized
+   JavaScript origins → copy the client id into `GOOGLE_CLIENT_ID`.
+2. **Facebook** — https://developers.facebook.com/apps → Create app → add the
+   "Facebook Login" product → Settings > Basic → copy `FACEBOOK_APP_ID` and
+   `FACEBOOK_APP_SECRET`.
+3. Frontend obtains the provider token (Google Identity Services / FB JS SDK) and POSTs
+   it to `/auth/social/google` or `/auth/social/facebook`; the backend verifies it and
+   returns the same JWT pair local users get.
+
 ## Stripe setup (live mode)
 
 1. Put `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in `fastapi_backend/.env`.
 2. Forward webhooks locally: `stripe listen --forward-to localhost:8000/payments/webhook`
 3. Checkout responses then contain a real `checkout_url` (hosted page) or `client_secret` (Elements).
 
-## Auth0 setup (social login)
+## Public access with ngrok
 
-1. Create an Auth0 application (SPA), enable the **Google** and **Facebook** connections.
-2. Set `AUTH0_DOMAIN` and `AUTH0_CLIENT_ID` in `fastapi_backend/.env`.
-3. Frontend obtains an ID token via Auth0 Universal Login and POSTs it to `/auth/social/auth0`;
-   the backend verifies it (RS256 / JWKS) and returns the platform's own JWT pair.
+The Vite dev server proxies `/api/*` (HTTP **and** WebSocket) to the FastAPI backend,
+so one tunnel exposes the entire app:
+
+```bash
+ngrok http 3000
+```
+
+The printed `https://….ngrok-free.dev` URL serves the storefront, the API, and live
+notifications (wss) to anyone. Use that URL when registering OAuth apps:
+
+- **Google**: add the ngrok URL to *Authorized JavaScript origins* (alongside
+  `http://localhost:3000`).
+- **Facebook**: set it as the *Site URL* / add the domain to *App domains* —
+  Facebook requires HTTPS, which ngrok provides.
+
+Note: a free-plan ngrok URL changes on every restart (visitors also see a one-time
+interstitial page); reserve a static domain in the ngrok dashboard to keep OAuth
+origins stable.
 
 ## Testing
 

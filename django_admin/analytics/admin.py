@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Order, OrderItem, Payment, Product, StoreUser
+from .models import Invoice, Order, OrderItem, Payment, Product, Role, StoreUser
 
 
 @admin.register(StoreUser)
@@ -39,3 +39,15 @@ class PaymentAdmin(admin.ModelAdmin):
     list_display = ("id", "order", "amount", "currency", "payment_method", "status", "created_at")
     list_filter = ("status", "payment_method")
     search_fields = ("transaction_id",)
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ("invoice_number", "order", "user", "total", "currency", "issued_at")
+    search_fields = ("invoice_number",)
+    readonly_fields = ("invoice_number", "order", "user", "subtotal", "tax", "total", "issued_at")
+
+
+@admin.register(Role)
+class RoleAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "description")

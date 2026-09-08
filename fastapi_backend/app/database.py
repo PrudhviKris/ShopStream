@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from .config import settings
+from .config import BASE_DIR, settings
 
 
 def _ensure_mysql_database() -> None:
@@ -19,14 +19,25 @@ def _ensure_mysql_database() -> None:
     tmp_engine.dispose()
 
 
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
-    engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
-else:
-    if settings.DATABASE_URL.startswith("mysql"):
-        _ensure_mysql_database()
+def _make_engine():
+    url = settings.DATABASE_URL
+    if url.startswith("mysql"):
+        try:
+            _ensure_mysql_database()
+        except Exception as exc:
+            url = f"sqlite:///{(BASE_DIR / 'ecommerce.db').as_posix()}"
+            print(
+                f"WARNING: MySQL connection failed ({exc.__class__.__name__}: {exc}).\n"
+                f"         Check MYSQL_PASSWORD in fastapi_backend/.env.\n"
+                f"         Falling back to SQLite at {url}"
+            )
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
     # pool_pre_ping revalidates pooled connections (MySQL closes idle ones)
-    engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
+    return create_engine(url, pool_pre_ping=True, pool_recycle=3600)
+
+
+engine = _make_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

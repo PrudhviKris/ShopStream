@@ -36,8 +36,18 @@ check("login rejects bad password", r.status_code == 401)
 
 r = client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
 check("refresh", r.status_code == 200, r.text)
+rotated = r.json()
+r = client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
+check("refresh token rotation (old token revoked)", r.status_code == 401, r.text)
 r = client.post("/auth/refresh", json={"refresh_token": tokens["access_token"]})
 check("refresh rejects access token", r.status_code == 401)
+r = client.post("/auth/logout", json={"refresh_token": rotated["refresh_token"]})
+check("logout revokes refresh token", r.status_code == 200)
+r = client.post("/auth/refresh", json={"refresh_token": rotated["refresh_token"]})
+check("revoked token cannot refresh", r.status_code == 401)
+r = client.post("/auth/login", json={"email": "smoke@test.com", "password": "SmokePass123!"})
+tokens = r.json()
+auth = {"Authorization": f"Bearer {tokens['access_token']}"}
 
 r = client.get("/auth/me", headers=auth)
 check("me", r.status_code == 200 and r.json()["email"] == "smoke@test.com", r.text)
@@ -62,15 +72,25 @@ r = client.get("/products/1")
 check("product detail", r.status_code == 200 and r.json()["id"] == 1)
 check("product 404", client.get("/products/99999").status_code == 404)
 
-# ---- RBAC ----
+# ---- RBAC: products ----
 new_product = {"name": "RBAC Test Item", "price": 9.99, "stock": 5, "category": "test"}
 check("customer cannot create product", client.post("/products", json=new_product, headers=auth).status_code == 403)
 r = client.post("/auth/login", json={"email": "admin@example.com", "password": "AdminPass123!"})
 admin_auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
+r = client.post("/auth/login", json={"email": "staff@example.com", "password": "StaffPass123!"})
+staff_auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
 r = client.post("/products", json=new_product, headers=admin_auth)
 check("admin can create product", r.status_code == 201, r.text)
 rbac_id = r.json()["id"]
-check("admin can delete product", client.delete(f"/products/{rbac_id}", headers=admin_auth).status_code == 204)
+r = client.put(f"/products/{rbac_id}", json={"name": "Renamed by staff", "stock": 9,
+    "images": ["https://example.com/new-photo.jpg"]}, headers=staff_auth)
+check("staff can rename/restock/re-photo product",
+      r.status_code == 200 and r.json()["name"] == "Renamed by staff"
+      and r.json()["stock"] == 9 and r.json()["images"] == ["https://example.com/new-photo.jpg"], r.text)
+check("customer cannot update product",
+      client.put(f"/products/{rbac_id}", json={"price": 1.0}, headers=auth).status_code == 403)
+check("staff can delete product", client.delete(f"/products/{rbac_id}", headers=staff_auth).status_code == 204)
 
 # ---- Cart ----
 r = client.post("/cart/add", json={"product_id": 1, "quantity": 2}, headers=auth)
@@ -108,8 +128,11 @@ check("payment tracked", r.status_code == 200 and r.json()["status"] == "pending
 with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
     r = client.post(f"/payments/mock/confirm/{order_id}", headers=auth)
     check("mock payment confirm", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
-    msg = ws.receive_json()
-    check("websocket push received", msg["type"] == "payment" and "succeeded" in msg["message"], str(msg))
+    # Two pushes arrive: the auto-issued invoice, then the payment confirmation.
+    msgs = [ws.receive_json(), ws.receive_json()]
+    check("websocket invoice push received", any("Invoice INV-" in m["title"] for m in msgs), str(msgs))
+    check("websocket payment push received",
+          any(m["type"] == "payment" and "succeeded" in m["message"] for m in msgs), str(msgs))
 
 r = client.get(f"/orders/{order_id}", headers=auth)
 check("order marked paid", r.json()["order_status"] == "paid" and r.json()["payment_status"] == "succeeded")
@@ -130,5 +153,52 @@ r = client.put(f"/notifications/{notifs[0]['id']}/read", headers=auth)
 check("mark notification read", r.status_code == 200 and r.json()["is_read"] is True)
 r = client.put("/notifications/read-all", headers=auth)
 check("mark all read", r.status_code == 200)
+
+# ---- Invoices ----
+r = client.get("/invoices", headers=auth)
+check("customer sees own invoices", r.status_code == 200 and len(r.json()) >= 1, r.text)
+invoice = r.json()[0]
+check("invoice matches paid order",
+      invoice["order_id"] == order_id and invoice["total"] == co["amount"]
+      and invoice["invoice_number"].startswith("INV-"), str(invoice))
+r = client.get(f"/invoices/{invoice['id']}", headers=auth)
+check("customer reads own invoice", r.status_code == 200)
+check("customer denied /invoices/all", client.get("/invoices/all", headers=auth).status_code == 403)
+check("staff denied /invoices/all", client.get("/invoices/all", headers=staff_auth).status_code == 403)
+r = client.get("/invoices/all", headers=admin_auth)
+check("admin sees everyone's invoices",
+      r.status_code == 200 and any(i["user_email"] == "smoke@test.com" for i in r.json()), r.text)
+r = client.get(f"/invoices/{invoice['id']}", headers=admin_auth)
+check("admin reads any customer's invoice", r.status_code == 200)
+
+# ---- Admin oversight: payments and orders of every customer ----
+check("customer denied /payments/all", client.get("/payments/all", headers=auth).status_code == 403)
+r = client.get("/payments/all", headers=admin_auth)
+check("admin sees everyone's payments",
+      r.status_code == 200 and any(p["user_email"] == "smoke@test.com" for p in r.json()), r.text)
+r = client.get("/orders/all", headers=admin_auth)
+check("admin order list shows customer identity",
+      r.status_code == 200 and all("user_email" in o for o in r.json()), r.text)
+r = client.get("/roles", headers=admin_auth)
+check("roles table (admin)", r.status_code == 200 and {x["name"] for x in r.json()} == {"admin", "staff", "customer"}, r.text)
+check("customer denied /roles", client.get("/roles", headers=auth).status_code == 403)
+
+# ---- Admin can shop and buy like anyone ----
+r = client.post("/cart/add", json={"product_id": 2, "quantity": 1}, headers=admin_auth)
+check("admin can add to cart", r.status_code == 201, r.text)
+r = client.post("/checkout", headers=admin_auth)
+check("admin can checkout", r.status_code == 200, r.text)
+admin_order = r.json()["order_id"]
+r = client.post(f"/payments/mock/confirm/{admin_order}", headers=admin_auth)
+check("admin can pay", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
+r = client.get("/invoices", headers=admin_auth)
+check("admin gets own invoice after buying", any(i["order_id"] == admin_order for i in r.json()), r.text)
+
+# ---- Social login endpoints exist (503 until provider keys are configured) ----
+r = client.post("/auth/social/google", json={"id_token": "x"})
+check("google endpoint present", r.status_code in (401, 503), r.text)
+r = client.post("/auth/social/facebook", json={"access_token": "x"})
+check("facebook endpoint present", r.status_code in (401, 503), r.text)
+check("auth0 endpoint removed", client.post("/auth/social/auth0", json={"id_token": "x"}).status_code == 404)
 
 print(f"\nAll {passed} checks passed.")

@@ -77,6 +77,36 @@ class OrderItem(models.Model):
         db_table = "order_items"
 
 
+class Role(models.Model):
+    name = models.CharField(max_length=20, unique=True)
+    description = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "roles"
+
+    def __str__(self):
+        return self.name
+
+
+class Invoice(models.Model):
+    invoice_number = models.CharField(max_length=30, unique=True)
+    order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, db_column="order_id")
+    user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id")
+    subtotal = models.FloatField()
+    tax = models.FloatField()
+    total = models.FloatField()
+    currency = models.CharField(max_length=10)
+    issued_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "invoices"
+
+    def __str__(self):
+        return self.invoice_number
+
+
 class Payment(models.Model):
     order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, db_column="order_id")
     amount = models.FloatField()

@@ -1,21 +1,50 @@
+from datetime import datetime
+from typing import List
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..deps import get_current_user
-from ..models import Order, OrderStatus, Payment, PaymentStatus, User, UserRole
-from ..schemas import PaymentOut
+from ..deps import get_current_user, require_admin
+from ..models import Invoice, Order, OrderStatus, Payment, PaymentStatus, User, UserRole
+from ..schemas import AdminPaymentOut, PaymentOut
 from ..services import stripe_service
 from ..services.notification_service import notify
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
+def _issue_invoice(db: Session, order: Order) -> Invoice:
+    invoice = Invoice(
+        invoice_number=f"INV-{datetime.utcnow():%Y}-{order.id:05d}",
+        order_id=order.id,
+        user_id=order.user_id,
+        subtotal=order.subtotal,
+        tax=order.tax,
+        total=order.total,
+        currency=order.payment.currency if order.payment else "usd",
+    )
+    db.add(invoice)
+    return invoice
+
+
 def _mark_paid(db: Session, payment: Payment) -> None:
     payment.status = PaymentStatus.succeeded
     payment.order.payment_status = PaymentStatus.succeeded
     payment.order.order_status = OrderStatus.paid
-    db.commit()
+    if db.query(Invoice).filter(Invoice.order_id == payment.order_id).first() is None:
+        invoice = _issue_invoice(db, payment.order)
+        db.commit()
+        notify(
+            db,
+            payment.order.user_id,
+            "payment",
+            f"Invoice {invoice.invoice_number}",
+            f"Invoice {invoice.invoice_number} issued for order #{payment.order_id} "
+            f"({invoice.currency.upper()} {invoice.total:.2f}).",
+        )
+    else:
+        db.commit()
     notify(
         db,
         payment.order.user_id,
@@ -95,6 +124,25 @@ def mock_confirm_payment(
         _mark_failed(db, payment)
     db.refresh(payment)
     return payment
+
+
+@router.get("/all", response_model=List[AdminPaymentOut])
+def all_payments(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    """Admin only: every customer's payments."""
+    payments = (
+        db.query(Payment)
+        .options(joinedload(Payment.order).joinedload(Order.user))
+        .order_by(Payment.created_at.desc())
+        .all()
+    )
+    return [
+        AdminPaymentOut(
+            **PaymentOut.model_validate(p).model_dump(),
+            user_name=p.order.user.name,
+            user_email=p.order.user.email,
+        )
+        for p in payments
+    ]
 
 
 @router.get("/{order_id}", response_model=PaymentOut)

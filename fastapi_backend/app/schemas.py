@@ -23,8 +23,13 @@ class RefreshRequest(BaseModel):
 
 
 class SocialLoginRequest(BaseModel):
-    """ID token obtained on the frontend from Auth0 (Google/Facebook connection)."""
+    """ID token obtained on the frontend (Google Identity Services)."""
     id_token: str
+
+
+class FacebookLoginRequest(BaseModel):
+    """User access token obtained on the frontend from the Facebook JS SDK."""
+    access_token: str
 
 
 class TokenPair(BaseModel):
@@ -157,8 +162,46 @@ class OrderOut(BaseModel):
     items: List[OrderItemOut]
 
 
+class AdminOrderOut(OrderOut):
+    """Order with customer identity — for staff/admin listings."""
+    user_name: str
+    user_email: EmailStr
+
+
+class AdminPaymentOut(PaymentOut):
+    user_name: str
+    user_email: EmailStr
+
+
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
+
+
+class InvoiceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    invoice_number: str
+    order_id: int
+    user_id: int
+    subtotal: float
+    tax: float
+    total: float
+    currency: str
+    issued_at: datetime
+
+
+class AdminInvoiceOut(InvoiceOut):
+    user_name: str
+    user_email: EmailStr
+
+
+class RoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str
 
 
 # ---------- Notifications ----------

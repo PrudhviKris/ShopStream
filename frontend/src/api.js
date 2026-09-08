@@ -1,5 +1,8 @@
 // Thin API client with automatic JWT refresh.
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Default "/api" goes through the Vite dev-server proxy (same origin), so the app
+// works identically on localhost and through a public ngrok tunnel.
+const BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const ABSOLUTE_BASE = BASE_URL.startsWith("http") ? BASE_URL : window.location.origin + BASE_URL;
 
 const tokens = {
   get access() { return localStorage.getItem("access_token"); },
@@ -53,7 +56,13 @@ export const api = {
     request("/auth/register", { method: "POST", body: { name, email, password } }).then((t) => tokens.set(t)),
   login: (email, password) =>
     request("/auth/login", { method: "POST", body: { email, password } }).then((t) => tokens.set(t)),
-  logout: () => tokens.clear(),
+  logout: async () => {
+    if (tokens.refresh) {
+      // Revoke the refresh token server-side; ignore failures (e.g. offline).
+      await request("/auth/logout", { method: "POST", body: { refresh_token: tokens.refresh } }).catch(() => {});
+    }
+    tokens.clear();
+  },
   me: () => request("/auth/me"),
   isLoggedIn: () => Boolean(tokens.access),
 
@@ -71,12 +80,32 @@ export const api = {
 
   checkout: () => request("/checkout?flow=session", { method: "POST" }),
   orders: () => request("/orders"),
+  mockConfirmPayment: (orderId) =>
+    request(`/payments/mock/confirm/${orderId}?outcome=success`, { method: "POST" }),
   notifications: () => request("/notifications"),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () => request("/notifications/read-all", { method: "PUT" }),
 
-  // Real-time notification stream
+  // ---- invoices ----
+  myInvoices: () => request("/invoices"),
+
+  // ---- staff/admin: product management ----
+  createProduct: (data) => request("/products", { method: "POST", body: data }),
+  updateProduct: (id, data) => request(`/products/${id}`, { method: "PUT", body: data }),
+  deleteProduct: (id) => request(`/products/${id}`, { method: "DELETE" }),
+  updateOrderStatus: (id, status) =>
+    request(`/orders/${id}/status`, { method: "PUT", body: { status } }),
+
+  // ---- admin: everything, every customer ----
+  allOrders: () => request("/orders/all"),
+  allPayments: () => request("/payments/all"),
+  allInvoices: () => request("/invoices/all"),
+  roles: () => request("/roles"),
+
+  // Real-time notification stream (wss:// automatically when served over https)
   notificationSocket() {
     const ws = new WebSocket(
-      `${BASE_URL.replace(/^http/, "ws")}/ws/notifications?token=${tokens.access}`
+      `${ABSOLUTE_BASE.replace(/^http/, "ws")}/ws/notifications?token=${tokens.access}`
     );
     return ws;
   },

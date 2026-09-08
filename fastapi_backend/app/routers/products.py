@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import require_admin
+from ..deps import require_staff_or_admin
 from ..models import Product, User
 from ..schemas import ProductCreate, ProductList, ProductOut, ProductUpdate
 
@@ -89,12 +89,12 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-# ---------- Admin-only product management (RBAC) ----------
+# ---------- Product management: staff & admin (RBAC) ----------
 @router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(
     body: ProductCreate,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _staff: User = Depends(require_staff_or_admin),
 ):
     product = Product(**body.model_dump())
     db.add(product)
@@ -108,7 +108,7 @@ def update_product(
     product_id: int,
     body: ProductUpdate,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _staff: User = Depends(require_staff_or_admin),
 ):
     product = db.get(Product, product_id)
     if product is None:
@@ -124,7 +124,7 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _staff: User = Depends(require_staff_or_admin),
 ):
     product = db.get(Product, product_id)
     if product is None:

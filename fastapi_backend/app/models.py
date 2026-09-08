@@ -48,7 +48,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=True)  # null for social-login users
     role = Column(Enum(UserRole), default=UserRole.customer, nullable=False)
-    auth_provider = Column(String(50), default="local")  # local / auth0-google / auth0-facebook
+    auth_provider = Column(String(50), default="local")  # local / google / facebook
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     cart_items = relationship("CartItem", back_populates="user", cascade="all, delete-orphan")
@@ -128,6 +128,52 @@ class Payment(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     order = relationship("Order", back_populates="payment")
+
+
+class Role(Base):
+    """Reference table for the platform's roles and what they may do."""
+
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(20), unique=True, nullable=False)  # matches User.role values
+    description = Column(String(255), default="")
+
+
+class RefreshToken(Base):
+    """Every issued refresh token (local or social login). Enables revocation
+    and rotation: a refresh token that is missing, revoked, or expired here
+    is rejected even if its JWT signature is valid."""
+
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+    jti = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User")
+
+
+class Invoice(Base):
+    """Issued automatically when an order's payment succeeds."""
+
+    __tablename__ = "invoices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_number = Column(String(30), unique=True, index=True, nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    subtotal = Column(Float, nullable=False)
+    tax = Column(Float, default=0.0)
+    total = Column(Float, nullable=False)
+    currency = Column(String(10), default="usd")
+    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    order = relationship("Order")
+    user = relationship("User")
 
 
 class Notification(Base):

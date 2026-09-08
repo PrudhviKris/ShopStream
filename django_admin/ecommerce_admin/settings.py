@@ -68,7 +68,11 @@ def _load_fastapi_env():
 
 _load_fastapi_env()
 
-if os.getenv("MYSQL_PASSWORD"):
+_mysql_password = os.getenv("MYSQL_PASSWORD", "")
+if _mysql_password == "your-mysql-root-password":  # untouched .env.example placeholder
+    _mysql_password = ""
+
+if _mysql_password:
     import pymysql
 
     pymysql.install_as_MySQLdb()  # lets Django's mysql backend use PyMySQL
@@ -77,7 +81,7 @@ if os.getenv("MYSQL_PASSWORD"):
             "ENGINE": "django.db.backends.mysql",
             "NAME": os.getenv("MYSQL_DB", "ecommerce"),
             "USER": os.getenv("MYSQL_USER", "root"),
-            "PASSWORD": os.environ["MYSQL_PASSWORD"],
+            "PASSWORD": _mysql_password,
             "HOST": os.getenv("MYSQL_HOST", "127.0.0.1"),
             "PORT": os.getenv("MYSQL_PORT", "3306"),
             "OPTIONS": {"charset": "utf8mb4"},

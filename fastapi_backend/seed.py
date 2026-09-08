@@ -1,12 +1,18 @@
-"""Seed the database with an admin user, a staff user, and sample products.
+# """Seed the database with an admin user, a staff user, and sample products.
 
-Run:  python seed.py
-"""
+# Run:  python seed.py
+# """
 from app.database import Base, SessionLocal, engine
-from app.models import Product, User, UserRole
+from app.models import Product, Role, User, UserRole
 from app.security import hash_password
 
 Base.metadata.create_all(bind=engine)
+
+ROLES = [
+    ("admin", "Full access: shop, buy, manage products, see all orders/payments/invoices, manage order statuses and roles."),
+    ("staff", "Can shop and manage products (create, rename, price, stock, photos, delete) and update order statuses."),
+    ("customer", "Can shop: browse products, manage their cart, place orders, pay, and view their own orders and invoices."),
+]
 
 PRODUCTS = [
     ("Wireless Mouse", "Ergonomic 2.4GHz wireless mouse", "electronics", 24.99, 150, 320),
@@ -33,6 +39,13 @@ USERS = [
 def seed() -> None:
     db = SessionLocal()
     try:
+        for name, description in ROLES:
+            existing = db.query(Role).filter(Role.name == name).first()
+            if existing is None:
+                db.add(Role(name=name, description=description))
+            else:
+                existing.description = description
+
         for name, email, password, role in USERS:
             if not db.query(User).filter(User.email == email).first():
                 db.add(

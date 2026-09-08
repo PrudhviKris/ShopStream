@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
 from ..deps import get_current_user, require_staff_or_admin
 from ..models import Order, OrderStatus, User, UserRole
-from ..schemas import OrderOut, OrderStatusUpdate
+from ..schemas import AdminOrderOut, OrderOut, OrderStatusUpdate
 from ..services.notification_service import notify
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -23,16 +23,25 @@ def my_orders(db: Session = Depends(get_db), user: User = Depends(get_current_us
     )
 
 
-@router.get("/all", response_model=List[OrderOut])
+@router.get("/all", response_model=List[AdminOrderOut])
 def all_orders(
     db: Session = Depends(get_db), _staff: User = Depends(require_staff_or_admin)
 ):
-    return (
+    """Staff/admin: every customer's orders, with customer identity."""
+    orders = (
         db.query(Order)
-        .options(joinedload(Order.items))
+        .options(joinedload(Order.items), joinedload(Order.user))
         .order_by(Order.created_at.desc())
         .all()
     )
+    return [
+        AdminOrderOut(
+            **OrderOut.model_validate(o).model_dump(),
+            user_name=o.user.name,
+            user_email=o.user.email,
+        )
+        for o in orders
+    ]
 
 
 @router.get("/{order_id}", response_model=OrderOut)
