@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 import seed
+from app.config import settings
 from app.database import SessionLocal
 from app.main import app
 from app.security import create_access_token
@@ -396,6 +397,48 @@ try:
     check("order gone", client.get(f"/orders/{del_order}", headers=auth).status_code == 404)
     check("stock restored after order delete",
           client.get("/products/9").json()["stock"] == stock_before_del + 2)
+
+    # ---- Google ID token clock-skew tolerance (regression test) ----
+    # Found live: a real Google login failed with jwt.exceptions.ImmatureSignature
+    # Error ("not yet valid (iat)") on a machine whose clock ran ~8s behind —
+    # PyJWT's default leeway is 0, so any negative drift rejects a freshly
+    # issued token. Builds a genuine RS256-signed token (no network) with iat
+    # a few seconds in the future to prove _verify_google_id_token now tolerates it.
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from datetime import datetime as _dt, timedelta, timezone
+    import jwt as _pyjwt
+    from app.routers import auth as auth_module
+
+    _rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    _pub_pem = _rsa_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    _now = _dt.now(timezone.utc)
+    _drifted_token = _pyjwt.encode(
+        {
+            "iss": "https://accounts.google.com",
+            "aud": settings.GOOGLE_CLIENT_ID or "test-client-id",
+            "email": "clock-drift-test@example.com",
+            "email_verified": True,
+            "name": "Clock Drift Test",
+            "iat": _now + timedelta(seconds=5),  # "issued" slightly in the future
+            "exp": _now + timedelta(hours=1),
+        },
+        _rsa_key,
+        algorithm="RS256",
+    )
+
+    class _FakeSigningKey:
+        key = _pub_pem
+
+    with _patch(
+        "jwt.PyJWKClient.get_signing_key_from_jwt",
+        return_value=_FakeSigningKey(),
+    ), _patch.object(settings, "GOOGLE_CLIENT_ID", settings.GOOGLE_CLIENT_ID or "test-client-id"):
+        claims = auth_module._verify_google_id_token(_drifted_token)
+    check("Google id token with a few seconds of future iat is tolerated (leeway)",
+          claims["email"] == "clock-drift-test@example.com", str(claims))
 
     # ---- Social login endpoints exist (503 until provider keys are configured) ----
     r = client.post("/auth/social/google", json={"id_token": "x"})

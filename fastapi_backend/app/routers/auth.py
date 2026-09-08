@@ -135,7 +135,14 @@ def _verify_google_id_token(id_token: str) -> dict:
 
     signing_key = PyJWKClient("https://www.googleapis.com/oauth2/v3/certs").get_signing_key_from_jwt(id_token)
     claims = pyjwt.decode(
-        id_token, signing_key.key, algorithms=["RS256"], audience=settings.GOOGLE_CLIENT_ID
+        id_token,
+        signing_key.key,
+        algorithms=["RS256"],
+        audience=settings.GOOGLE_CLIENT_ID,
+        # Tolerate a bit of clock drift between this machine and Google's
+        # servers — a freshly-issued token can otherwise look "not yet valid"
+        # (iat in the future) or "expired" by a few seconds on an unsynced clock.
+        leeway=60,
     )
     if claims.get("iss") not in ("https://accounts.google.com", "accounts.google.com"):
         raise ValueError("bad issuer")
