@@ -328,28 +328,49 @@ try:
     check("webhook fallback-match order now paid",
           client.get(f"/orders/{fallback_order_id}", headers=auth).json()["order_status"] == "paid")
 
+    # ---- The API says what can be done next, so callers never have to guess ----
+    r = client.get(f"/orders/{order_id}/status-options", headers=staff_auth)
+    opts = r.json()
+    check("status-options lists the legal next statuses for a paid order",
+          r.status_code == 200 and opts["order_status"] == "paid"
+          and set(opts["allowed_next_statuses"]) == {"shipped", "cancelled"}, r.text)
+    check("status-options says a settled payment can't be confirmed again",
+          opts["can_confirm_payment"] is False, r.text)
+    check("customer denied status-options",
+          client.get(f"/orders/{order_id}/status-options", headers=auth).status_code == 403)
+    check("every order response carries its own allowed_next_statuses",
+          set(client.get(f"/orders/{order_id}", headers=auth).json()["allowed_next_statuses"])
+          == {"shipped", "cancelled"})
+
     # ---- Order status flow (staff/admin) — the transitions the status box offers ----
-    check("customer cannot update status", client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=auth).status_code == 403)
-    r = client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=admin_auth)
+    check("customer cannot update status", client.put(f"/orders/{order_id}/status?status=shipped", headers=auth).status_code == 403)
+    r = client.put(f"/orders/{order_id}/status?status=shipped", headers=admin_auth)
     check("paid -> shipped", r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
-    check("invalid transition rejected", client.put(f"/orders/{order_id}/status", json={"status": "paid"}, headers=admin_auth).status_code == 400)
+    check("invalid transition rejected", client.put(f"/orders/{order_id}/status?status=paid", headers=admin_auth).status_code == 400)
     # shipped can now also be cancelled (previously only delivered was allowed)
     r = client.put(f"/orders/{fallback_order_id}/status", json={"status": "shipped"}, headers=staff_auth)
     check("staff can ship too", r.status_code == 200, r.text)
-    r = client.put(f"/orders/{fallback_order_id}/status", json={"status": "cancelled"}, headers=staff_auth)
+    r = client.put(f"/orders/{fallback_order_id}/status?status=cancelled", headers=staff_auth)
     check("shipped -> cancelled is allowed", r.status_code == 200 and r.json()["order_status"] == "cancelled", r.text)
     check("cancelled is terminal",
-          client.put(f"/orders/{fallback_order_id}/status", json={"status": "delivered"}, headers=admin_auth).status_code == 400)
+          client.put(f"/orders/{fallback_order_id}/status?status=delivered", headers=admin_auth).status_code == 400)
     # pending -> paid must go through payment confirmation, not a raw status flip,
     # otherwise the order would be "paid" with a pending payment and no invoice.
     r = client.post("/cart/add", json={"product_id": 5, "quantity": 1}, headers=auth)
     r = client.post("/checkout?payment_method=cash", headers=auth)
     raw_paid_order = r.json()["order_id"]
-    r = client.put(f"/orders/{raw_paid_order}/status", json={"status": "paid"}, headers=admin_auth)
+    r = client.put(f"/orders/{raw_paid_order}/status?status=paid", headers=admin_auth)
     check("pending -> paid rejected on the status endpoint (must confirm the payment)",
           r.status_code == 400 and "confirm" in r.json()["detail"].lower(), r.text)
-    r = client.put(f"/orders/{raw_paid_order}/status", json={"status": "cancelled"}, headers=admin_auth)
+    r = client.put(f"/orders/{raw_paid_order}/status?status=cancelled", headers=admin_auth)
     check("pending -> cancelled is allowed", r.status_code == 200, r.text)
+    # Omitting the status entirely explains what to do instead of a bare 422.
+    r = client.put(f"/orders/{raw_paid_order}/status", headers=admin_auth)
+    check("missing status explains how to pick one",
+          r.status_code == 422 and "status=" in r.json()["detail"], r.text)
+    check("a final order reports no next statuses",
+          client.get(f"/orders/{raw_paid_order}/status-options", headers=admin_auth)
+          .json()["allowed_next_statuses"] == [])
     check("staff/admin order list", client.get("/orders/all", headers=admin_auth).status_code == 200)
     check("customer denied /orders/all", client.get("/orders/all", headers=auth).status_code == 403)
 

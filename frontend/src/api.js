@@ -106,7 +106,8 @@ export const api = {
   updateProduct: (id, data) => request(`/products/${id}`, { method: "PUT", body: data }),
   deleteProduct: (id) => request(`/products/${id}`, { method: "DELETE" }),
   updateOrderStatus: (id, status) =>
-    request(`/orders/${id}/status`, { method: "PUT", body: { status } }),
+    request(`/orders/${id}/status?status=${encodeURIComponent(status)}`, { method: "PUT" }),
+  orderStatusOptions: (id) => request(`/orders/${id}/status-options`),
 
   // ---- admin: everything, every customer ----
   allOrders: () => request("/orders/all"),

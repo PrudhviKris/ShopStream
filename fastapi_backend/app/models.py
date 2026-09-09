@@ -33,6 +33,22 @@ class OrderStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
+# Which statuses an order may move to from where it is now — the single source
+# of truth for the status endpoint, the "what can I do next" field on every
+# order response, and the storefront's status box.
+#
+# "paid" is deliberately unreachable here: an order only becomes paid by
+# confirming its payment (Stripe webhook, or POST /payments/confirm/{order_id}),
+# which also settles the payment record and issues the invoice.
+ORDER_TRANSITIONS: dict = {
+    OrderStatus.pending: [OrderStatus.cancelled],
+    OrderStatus.paid: [OrderStatus.shipped, OrderStatus.cancelled],
+    OrderStatus.shipped: [OrderStatus.delivered, OrderStatus.cancelled],
+    OrderStatus.delivered: [],
+    OrderStatus.cancelled: [],
+}
+
+
 class PaymentStatus(str, enum.Enum):
     pending = "pending"
     succeeded = "succeeded"
@@ -105,6 +121,18 @@ class Order(Base):
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     payment = relationship("Payment", back_populates="order", uselist=False)
+
+    @property
+    def allowed_next_statuses(self) -> list:
+        """The statuses PUT /orders/{id}/status will accept for this order
+        right now — so a caller never has to guess what's legal from here."""
+        return [s.value for s in ORDER_TRANSITIONS.get(self.order_status, [])]
+
+    @property
+    def can_confirm_payment(self) -> bool:
+        """True when POST /payments/confirm/{order_id} still applies — i.e. the
+        money hasn't been settled yet. This is how an order reaches 'paid'."""
+        return self.payment_status != PaymentStatus.succeeded
 
 
 class OrderItem(Base):

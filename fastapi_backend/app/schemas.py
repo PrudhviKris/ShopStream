@@ -164,6 +164,9 @@ class OrderOut(BaseModel):
     created_at: datetime
     items: List[OrderItemOut]
     payment: Optional[PaymentOut] = None  # method + transaction id (stripe / cash)
+    # What you may do with this order right now, so callers don't have to guess:
+    allowed_next_statuses: List[str] = []   # valid values for PUT /orders/{id}/status
+    can_confirm_payment: bool = False       # whether POST /payments/confirm/{id} applies
 
 
 class AdminOrderOut(OrderOut):
