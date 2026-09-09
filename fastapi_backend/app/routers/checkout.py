@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
@@ -16,8 +18,29 @@ from ..services.sequence_service import next_sequence_value
 router = APIRouter(tags=["Checkout"])
 
 
+def _return_base(request: Request) -> str:
+    """The origin Stripe should return the shopper to after paying.
+
+    Taken from the browser's own origin so checkout keeps working wherever the
+    storefront is being served — localhost, a LAN address, or a tunnel whose
+    URL changes (or goes offline) between runs. Checked against an allowlist
+    first: an unvalidated Origin header here would be an open redirect.
+    """
+    allowed = {settings.PUBLIC_URL.rstrip("/")}
+    allowed |= {o.strip().rstrip("/") for o in settings.CORS_ORIGINS if o.strip()}
+    allowed |= {"http://127.0.0.1:8000", "http://localhost:8000",
+                "http://127.0.0.1:3000", "http://localhost:3000"}
+
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if not origin and request.headers.get("referer"):
+        parsed = urlparse(request.headers["referer"])
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+    return origin if origin in allowed else settings.PUBLIC_URL.rstrip("/")
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 def checkout(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     flow: str = Query(default="session", pattern="^(session|intent)$"),
@@ -94,7 +117,8 @@ def checkout(
     else:
         provider = "stripe" if stripe_service.is_live() else "stripe-mock"
         stripe_data = stripe_service.create_checkout_session(
-            order.id, total, settings.STRIPE_CURRENCY, line_items
+            order.id, total, settings.STRIPE_CURRENCY, line_items,
+            return_base=_return_base(request),
         )
         checkout_url = stripe_data.get("checkout_url")
 

@@ -23,14 +23,29 @@ def is_live() -> bool:
     return bool(_stripe and settings.STRIPE_SECRET_KEY)
 
 
-def create_checkout_session(order_id: int, amount: float, currency: str, line_items: list) -> dict:
-    """Returns {transaction_id, checkout_url, client_secret}."""
+def create_checkout_session(
+    order_id: int,
+    amount: float,
+    currency: str,
+    line_items: list,
+    return_base: Optional[str] = None,
+) -> dict:
+    """Returns {transaction_id, checkout_url, client_secret}.
+
+    return_base is the origin the shopper is actually browsing from, so Stripe
+    sends them back where they came from — a hardcoded URL breaks the moment a
+    tunnel goes down or changes address.
+    """
     if not is_live():
         return {
             "transaction_id": f"mock_cs_{uuid.uuid4().hex[:16]}",
             "checkout_url": f"http://localhost:8000/mock-checkout/{order_id}",
             "client_secret": f"mock_pi_{uuid.uuid4().hex[:16]}_secret",
         }
+
+    base = (return_base or "").rstrip("/")
+    success_url = f"{base}/receipt" if base else settings.CHECKOUT_SUCCESS_URL
+    cancel_url = f"{base}/receipt?cancelled=1" if base else settings.CHECKOUT_CANCEL_URL
 
     session = _stripe.checkout.Session.create(
         mode="payment",
@@ -47,8 +62,8 @@ def create_checkout_session(order_id: int, amount: float, currency: str, line_it
             for item in line_items
         ],
         metadata={"order_id": str(order_id)},
-        success_url=settings.CHECKOUT_SUCCESS_URL + "?session_id={CHECKOUT_SESSION_ID}",
-        cancel_url=settings.CHECKOUT_CANCEL_URL,
+        success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url=cancel_url,
     )
     return {
         "transaction_id": session.id,
