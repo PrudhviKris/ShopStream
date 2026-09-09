@@ -108,6 +108,11 @@ export const api = {
   updateOrderStatus: (id, status) =>
     request(`/orders/${id}/status?status=${encodeURIComponent(status)}`, { method: "PUT" }),
   orderStatusOptions: (id) => request(`/orders/${id}/status-options`),
+  // Receipt for a completed checkout — Stripe redirects back with session_id.
+  receipt: ({ session_id, order_id }) =>
+    request(`/payments/receipt?${new URLSearchParams(
+      session_id ? { session_id } : { order_id }
+    )}`),
 
   // ---- admin: everything, every customer ----
   allOrders: () => request("/orders/all"),

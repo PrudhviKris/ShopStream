@@ -89,8 +89,12 @@ class Settings:
     STRIPE_SECRET_KEY = _env("STRIPE_SECRET_KEY")
     STRIPE_WEBHOOK_SECRET = _env("STRIPE_WEBHOOK_SECRET")
     STRIPE_CURRENCY = os.getenv("STRIPE_CURRENCY", "usd")
-    CHECKOUT_SUCCESS_URL = os.getenv("CHECKOUT_SUCCESS_URL", "http://localhost:3000/checkout/success")
-    CHECKOUT_CANCEL_URL = os.getenv("CHECKOUT_CANCEL_URL", "http://localhost:3000/checkout/cancel")
+    # Where Stripe sends the shopper afterwards. Both land on the storefront's
+    # receipt page (Stripe appends ?session_id=... to the success URL, which the
+    # page reads back via GET /payments/receipt). Note the path deliberately
+    # avoids "/checkout" — that prefix belongs to the API.
+    CHECKOUT_SUCCESS_URL = os.getenv("CHECKOUT_SUCCESS_URL") or f"{PUBLIC_URL}/receipt"
+    CHECKOUT_CANCEL_URL = os.getenv("CHECKOUT_CANCEL_URL") or f"{PUBLIC_URL}/receipt?cancelled=1"
 
     # Cart
     TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))  # 8% default, set 0 to disable

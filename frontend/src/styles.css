@@ -402,6 +402,40 @@ h1, h2, h3 { font-family: var(--font-display); }
 .status-action.danger:hover:not(:disabled) { border-color: var(--danger); background: var(--danger-soft); }
 .status-action.danger strong { color: var(--danger); }
 
+/* ---------- Payment receipt ---------- */
+.receipt-wrap { display: flex; justify-content: center; padding: 10px 0 40px; }
+.receipt { width: min(560px, 100%); text-align: center; padding: 32px 30px; }
+.receipt h1 { font: 700 26px var(--font-display); margin: 14px 0 6px; letter-spacing: -0.8px; }
+.receipt > .muted { color: var(--muted); margin: 0 auto; max-width: 400px; }
+.receipt-mark {
+  width: 62px; height: 62px; border-radius: 50%; margin: 0 auto;
+  display: grid; place-items: center; font-size: 28px; font-weight: 700;
+  background: var(--success-soft); color: var(--success);
+}
+.receipt.pending .receipt-mark { background: var(--warning-soft); color: var(--warning); }
+.receipt.cancelled .receipt-mark { background: var(--danger-soft); color: var(--danger); }
+.receipt-amount {
+  font: 700 34px var(--font-display); margin: 20px 0 4px; letter-spacing: -1px;
+}
+.receipt-details {
+  text-align: left; border: 1px solid var(--line); border-radius: 14px;
+  padding: 6px 16px; margin: 22px 0 0; background: var(--paper);
+}
+.receipt-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13.5px;
+}
+.receipt-row:last-child { border-bottom: none; }
+.receipt-label { color: var(--muted); }
+.receipt-value { font-weight: 600; text-align: right; word-break: break-all; }
+.receipt-value.mono { font-family: Consolas, monospace; font-size: 12px; font-weight: 500; }
+.receipt-items { text-align: left; margin-top: 20px; }
+.receipt-items h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-2); margin: 0 0 8px; }
+.receipt-item { display: flex; justify-content: space-between; padding: 7px 0; font-size: 13.5px; border-bottom: 1px dashed var(--line); }
+.receipt-item:last-child { border-bottom: none; }
+.receipt-actions { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+.receipt-actions .btn { text-decoration: none; }
+
 /* ---------- Invoices ---------- */
 .invoice-box { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 @media (max-width: 700px) { .invoice-box { grid-template-columns: 1fr; } }

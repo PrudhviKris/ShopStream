@@ -10,9 +10,24 @@ import OrdersPage from "./components/OrdersPage";
 import PaymentsPage from "./components/PaymentsPage";
 import InvoicesPage from "./components/InvoicesPage";
 import CartDrawer from "./components/CartDrawer";
+import ReceiptPage from "./components/ReceiptPage";
 import { ProductDetailModal, ProductFormModal } from "./components/Catalog";
 
 const TOAST_ICONS = { order: "📦", payment: "💳", info: "🔔" };
+
+// Stripe sends the shopper back to {PUBLIC_URL}/receipt?session_id=... (or
+// ?cancelled=1). Read that off the URL once at startup — the app has no router,
+// so this is how a returning payment finds its receipt.
+function readReceiptFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const onReceiptPath = window.location.pathname.replace(/\/+$/, "").endsWith("/receipt");
+  if (!onReceiptPath && !params.get("session_id")) return null;
+  return {
+    sessionId: params.get("session_id"),
+    orderId: params.get("order_id"),
+    cancelled: params.get("cancelled") === "1",
+  };
+}
 
 export default function App() {
   const [view, setView] = useState("dashboard"); // dashboard | products | orders | payments | invoices | auth
@@ -29,6 +44,7 @@ export default function App() {
   const [formProduct, setFormProduct] = useState(undefined); // undefined=closed, null=create, object=edit
   const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [receiptFor, setReceiptFor] = useState(readReceiptFromUrl);
   const [filters, setFilters] = useState({
     category: "", min_price: "", max_price: "", in_stock: false, search: "", sort: "popularity",
   });
@@ -133,11 +149,10 @@ export default function App() {
       if (result.checkout_url && !result.checkout_url.includes("mock-checkout")) {
         window.location.href = result.checkout_url; // Stripe hosted page
       } else {
-        if (paymentMethod === "cash") {
-          pushToast({ type: "order", title: "Order placed — cash on delivery", message: `Transaction ref ${result.transaction_id}. Pay on delivery.` });
-        }
+        // Cash (and mock-mode card) orders never leave the app, so show them the
+        // same receipt Stripe shoppers come back to.
         setCartOpen(false);
-        setView("orders");
+        setReceiptFor({ orderId: result.order_id, sessionId: null, cancelled: false });
       }
     } catch (err) {
       pushToast({ type: "info", title: "Checkout failed", message: err.message });
@@ -211,11 +226,27 @@ export default function App() {
         <Sidebar user={user} view={view} onNavigate={setView} />
 
         <main className="main">
-          {view === "dashboard" && (
+          {receiptFor && (
+            <ReceiptPage
+              sessionId={receiptFor.sessionId}
+              orderId={receiptFor.orderId}
+              cancelled={receiptFor.cancelled}
+              onDone={(where) => {
+                // Drop the receipt out of the URL so a refresh doesn't reopen it.
+                window.history.replaceState(null, "", "/");
+                setReceiptFor(null);
+                setView(where);
+                api.orders().then(setOrders).catch(() => {});
+                api.myInvoices().then(setInvoices).catch(() => {});
+              }}
+            />
+          )}
+
+          {!receiptFor && view === "dashboard" && (
             <DashboardPage user={user} products={products} cart={cart} orders={orders} onNavigate={setView} />
           )}
 
-          {view === "products" && (
+          {!receiptFor && view === "products" && (
             <ProductsPage
               products={products}
               total={total}
@@ -231,7 +262,7 @@ export default function App() {
             />
           )}
 
-          {view === "orders" && (
+          {!receiptFor && view === "orders" && (
             <OrdersPage
               user={user}
               orders={orders}
@@ -242,8 +273,8 @@ export default function App() {
             />
           )}
 
-          {view === "payments" && <PaymentsPage user={user} orders={orders} notify={notify} />}
-          {view === "invoices" && <InvoicesPage user={user} />}
+          {!receiptFor && view === "payments" && <PaymentsPage user={user} orders={orders} notify={notify} />}
+          {!receiptFor && view === "invoices" && <InvoicesPage user={user} />}
         </main>
       </div>
 

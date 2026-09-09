@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
 from ..deps import get_current_user, require_admin, require_staff_or_admin
 from ..models import Invoice, Order, OrderStatus, Payment, PaymentStatus, User, UserRole
-from ..schemas import AdminPaymentOut, PaymentOut
+from ..schemas import AdminPaymentOut, PaymentOut, ReceiptOut
 from ..services import stripe_service
 from ..services.notification_service import notify
 from ..services.sequence_service import next_sequence_value
@@ -155,6 +155,97 @@ def confirm_payment(
     automatically confirmed one. Works for Stripe and cash alike.
     """
     return _confirm_payment_for_order(db, order_id, outcome)
+
+
+def _stripe_card_details(transaction_id: str) -> dict:
+    """Cardholder name / card / receipt link for a Stripe checkout session.
+
+    Only Stripe holds these — we never see or store card data. Returns {} for
+    cash, mock mode, or anything Stripe won't tell us, so the receipt simply
+    omits those lines rather than failing.
+    """
+    if not (transaction_id or "").startswith("cs_") or not stripe_service.is_live():
+        return {}
+    try:
+        import stripe
+
+        session = stripe.checkout.Session.retrieve(
+            transaction_id, expand=["payment_intent.latest_charge"]
+        )
+        details = {}
+        customer = getattr(session, "customer_details", None)
+        if customer is not None:
+            details["card_holder_name"] = getattr(customer, "name", None)
+            details["receipt_email"] = getattr(customer, "email", None)
+
+        intent = getattr(session, "payment_intent", None)
+        charge = getattr(intent, "latest_charge", None) if intent is not None else None
+        if charge is not None:
+            details["receipt_url"] = getattr(charge, "receipt_url", None)
+            card = getattr(getattr(charge, "payment_method_details", None), "card", None)
+            if card is not None:
+                details["card_brand"] = getattr(card, "brand", None)
+                details["card_last4"] = getattr(card, "last4", None)
+                # Stripe puts the name on the billing details of the charge
+                billing = getattr(charge, "billing_details", None)
+                if billing is not None and not details.get("card_holder_name"):
+                    details["card_holder_name"] = getattr(billing, "name", None)
+        return {k: v for k, v in details.items() if v}
+    except Exception:
+        logger.exception("Could not read Stripe details for %s", transaction_id)
+        return {}
+
+
+@router.get("/receipt", response_model=ReceiptOut)
+def payment_receipt(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    session_id: Optional[str] = Query(
+        default=None, description="Stripe checkout session id, as handed back on the success redirect."
+    ),
+    order_id: Optional[int] = Query(default=None, description="Look the receipt up by order instead."),
+):
+    """The receipt for a completed checkout — what the success page renders.
+
+    Stripe redirects the shopper to {CHECKOUT_SUCCESS_URL}?session_id=... after
+    payment; the page passes that straight here. Customers can only read their
+    own receipts; staff and admin can read anyone's.
+    """
+    if not session_id and order_id is None:
+        raise HTTPException(status_code=422, detail="Pass either session_id or order_id.")
+
+    query = db.query(Payment)
+    payment = (
+        query.filter(Payment.transaction_id == session_id).first()
+        if session_id
+        else query.filter(Payment.order_id == order_id).first()
+    )
+    if payment is None:
+        raise HTTPException(status_code=404, detail="No payment found for this checkout")
+
+    order = payment.order
+    if order.user_id != user.id and user.role == UserRole.customer:
+        raise HTTPException(status_code=403, detail="Not your order")
+
+    invoice = db.query(Invoice).filter(Invoice.order_id == order.id).first()
+    settled = payment.status == PaymentStatus.succeeded
+
+    return ReceiptOut(
+        order_id=order.id,
+        order_number=order.order_number,
+        order_status=order.order_status,
+        payment_status=payment.status,
+        amount=payment.amount,
+        currency=payment.currency,
+        payment_method=payment.payment_method,
+        transaction_id=payment.transaction_id,
+        paid_at=payment.updated_at if settled else None,
+        created_at=payment.created_at,
+        invoice_number=invoice.invoice_number if invoice else None,
+        items=order.items,
+        awaiting_confirmation=not settled and payment.payment_method != "cash",
+        **_stripe_card_details(payment.transaction_id),
+    )
 
 
 @router.get("/all", response_model=List[AdminPaymentOut])

@@ -328,6 +328,36 @@ try:
     check("webhook fallback-match order now paid",
           client.get(f"/orders/{fallback_order_id}", headers=auth).json()["order_status"] == "paid")
 
+    # ---- Receipt page data (what Stripe redirects back to) ----
+    r = client.get(f"/payments/receipt?order_id={order_id}", headers=auth)
+    receipt = r.json()
+    check("receipt by order id carries the payment details",
+          r.status_code == 200
+          and receipt["order_id"] == order_id
+          and receipt["transaction_id"] == co["transaction_id"]
+          and receipt["amount"] == co["amount"]
+          and receipt["payment_status"] == "succeeded", r.text)
+    check("a settled receipt reports a paid time and its invoice",
+          receipt["paid_at"] is not None and receipt["invoice_number"].startswith("INV-"), r.text)
+    check("receipt lists the purchased items", len(receipt["items"]) >= 1, r.text)
+    check("a settled receipt is not awaiting confirmation",
+          receipt["awaiting_confirmation"] is False, r.text)
+
+    # Stripe hands the session id back on the success redirect, so that must work too.
+    r = client.get(f"/payments/receipt?session_id={co['transaction_id']}", headers=auth)
+    check("receipt by stripe session id resolves the same order",
+          r.status_code == 200 and r.json()["order_id"] == order_id, r.text)
+
+    check("receipt needs some way to find the payment",
+          client.get("/payments/receipt", headers=auth).status_code == 422)
+    check("unknown session id has no receipt",
+          client.get("/payments/receipt?session_id=cs_nope", headers=auth).status_code == 404)
+    check("staff may read any customer's receipt",
+          client.get(f"/payments/receipt?order_id={order_id}", headers=staff_auth).status_code == 200)
+    _, other_auth, _ = register(f"smoke-other-{RUN_ID}@example.com", "Smoke Other Customer")
+    check("a customer cannot read someone else's receipt",
+          client.get(f"/payments/receipt?order_id={order_id}", headers=other_auth).status_code == 403)
+
     # ---- The API says what can be done next, so callers never have to guess ----
     r = client.get(f"/orders/{order_id}/status-options", headers=staff_auth)
     opts = r.json()

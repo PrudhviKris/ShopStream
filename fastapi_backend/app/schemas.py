@@ -204,6 +204,34 @@ class AdminInvoiceOut(InvoiceOut):
     user_email: EmailStr
 
 
+class ReceiptOut(BaseModel):
+    """Everything needed to render a payment receipt after checkout.
+
+    Combines what this database knows (order, totals, invoice) with what only
+    Stripe knows (cardholder name, card brand/last4, receipt email).
+    """
+    order_id: int
+    order_number: Optional[int] = None
+    order_status: OrderStatus
+    payment_status: PaymentStatus
+    amount: float
+    currency: str
+    payment_method: str
+    transaction_id: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    created_at: datetime
+    invoice_number: Optional[str] = None
+    items: List[OrderItemOut] = []
+    # From Stripe, when the payment went through a card and details are available
+    card_holder_name: Optional[str] = None
+    card_brand: Optional[str] = None
+    card_last4: Optional[str] = None
+    receipt_email: Optional[EmailStr] = None
+    receipt_url: Optional[str] = None
+    # True while the Stripe webhook hasn't landed yet — the page polls until it has
+    awaiting_confirmation: bool = False
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
