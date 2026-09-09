@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -123,21 +123,48 @@ def _api_prefixes(routes) -> set:
 
 API_PREFIXES = _api_prefixes(app.routes)
 
+
+def _no_such_endpoint(method: str, full_path: str) -> HTTPException:
+    """A 404 that says what's wrong, instead of the bare 'Method Not Allowed'
+    a write to an unknown path used to produce (the SPA fallback below only
+    answers GET, so POST/PUT/DELETE to a wrong URL looked like a method
+    problem rather than a typo)."""
+    return HTTPException(
+        status_code=404,
+        detail=(
+            f"No such API endpoint: {method} /{full_path}. "
+            "See /docs for the available routes — note that payment confirmation "
+            "is POST /payments/confirm/{order_id}."
+        ),
+    )
+
+
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")
 
+    @app.api_route(
+        "/{full_path:path}",
+        methods=["POST", "PUT", "PATCH", "DELETE"],
+        include_in_schema=False,
+    )
+    def unknown_write_endpoint(full_path: str, request: Request):
+        raise _no_such_endpoint(request.method, full_path)
+
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
         if full_path.strip("/").split("/")[0] in API_PREFIXES:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No such API endpoint: /{full_path}. See /docs for the available routes.",
-            )
+            raise _no_such_endpoint("GET", full_path)
         candidate = FRONTEND_DIST / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        # Never let the browser cache the app shell: each build emits new hashed
+        # asset filenames, so a stale index.html keeps loading the *old* bundle
+        # and the UI silently looks like it never updated.
+        return FileResponse(
+            FRONTEND_DIST / "index.html",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 else:
 
     @app.get("/", include_in_schema=False)

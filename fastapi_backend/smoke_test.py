@@ -578,7 +578,16 @@ try:
     # schema-valid synthetic address rather than being blocked from logging in.
     from app.routers.auth import _get_or_create_social_user, _mock_email
     mock_email = _mock_email("facebook", "999999")
-    check("mock email is schema-valid", mock_email == "facebook_999999@facebook.example.com")
+    # Assert the properties that matter (stable, unique per account, accepted by
+    # EmailStr) rather than one hardcoded domain, so changing the placeholder
+    # domain doesn't break the suite.
+    from pydantic import TypeAdapter, EmailStr as _EmailStr
+    check("mock email is unique per facebook account and passes EmailStr",
+          "999999" in mock_email
+          and mock_email == _mock_email("facebook", "999999")
+          and mock_email != _mock_email("facebook", "888888")
+          and TypeAdapter(_EmailStr).validate_python(mock_email) == mock_email,
+          mock_email)
     with SessionLocal() as fb_db:
         fb_user = _get_or_create_social_user(fb_db, mock_email, "No Email User", "facebook")
         fb_user_id, fb_user_email, fb_user_provider = fb_user.id, fb_user.email, fb_user.auth_provider
