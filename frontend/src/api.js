@@ -86,8 +86,10 @@ export const api = {
   checkout: (paymentMethod = "stripe") =>
     request(`/checkout?flow=session&payment_method=${paymentMethod}`, { method: "POST" }),
   orders: () => request("/orders"),
-  mockConfirmPayment: (orderId) =>
-    request(`/payments/mock/confirm/${orderId}?outcome=success`, { method: "POST" }),
+  // Staff/admin: confirm an order's payment by order id (works for Stripe and
+  // cash alike — the manual counterpart to the Stripe webhook).
+  confirmPayment: (orderId) =>
+    request(`/payments/confirm/${orderId}?outcome=success`, { method: "POST" }),
   confirmCashPayment: (orderId) =>
     request(`/payments/cash/confirm/${orderId}`, { method: "POST" }),
   deleteOrder: (orderId) => request(`/orders/${orderId}`, { method: "DELETE" }),

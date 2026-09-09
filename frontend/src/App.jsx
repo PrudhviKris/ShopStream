@@ -146,15 +146,6 @@ export default function App() {
     }
   }
 
-  async function payNow(orderId) {
-    try {
-      await api.mockConfirmPayment(orderId);
-      setOrders(await api.orders());
-    } catch (err) {
-      pushToast({ type: "info", title: "Payment", message: err.message });
-    }
-  }
-
   async function saveProduct(data, id) {
     const saved = id ? await api.updateProduct(id, data) : await api.createProduct(data);
     setFormProduct(undefined);
@@ -246,7 +237,6 @@ export default function App() {
               orders={orders}
               invoices={invoices}
               canManage={manage}
-              onPayNow={payNow}
               onShop={() => setView("products")}
               notify={notify}
             />

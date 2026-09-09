@@ -256,10 +256,17 @@ try:
     r = client.get(f"/payments/{order_id}", headers=auth)
     check("payment tracked", r.status_code == 200 and r.json()["status"] == "pending", r.text)
 
+    # ---- Payment confirmation by order id (staff/admin only) ----
+    check("customer cannot confirm a payment",
+          client.post(f"/payments/confirm/{order_id}", headers=auth).status_code == 403)
+    check("confirming an unknown order 404s as JSON",
+          client.post("/payments/confirm/999999", headers=admin_auth).status_code == 404)
+
     # ---- Real-time notifications over WebSocket + payment confirmation ----
     with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
-        r = client.post(f"/payments/mock/confirm/{order_id}", headers=auth)
-        check("mock payment confirm", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
+        r = client.post(f"/payments/confirm/{order_id}", headers=staff_auth)
+        check("staff confirms payment by order id (works with live Stripe keys too)",
+              r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
         # Two pushes arrive: the auto-issued invoice, then the payment confirmation.
         msgs = [ws.receive_json(), ws.receive_json()]
         check("websocket invoice push received", any("Invoice INV-" in m["title"] for m in msgs), str(msgs))
@@ -321,11 +328,28 @@ try:
     check("webhook fallback-match order now paid",
           client.get(f"/orders/{fallback_order_id}", headers=auth).json()["order_status"] == "paid")
 
-    # ---- Order status flow (staff/admin) ----
+    # ---- Order status flow (staff/admin) — the transitions the status box offers ----
     check("customer cannot update status", client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=auth).status_code == 403)
     r = client.put(f"/orders/{order_id}/status", json={"status": "shipped"}, headers=admin_auth)
-    check("admin ships order", r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
+    check("paid -> shipped", r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
     check("invalid transition rejected", client.put(f"/orders/{order_id}/status", json={"status": "paid"}, headers=admin_auth).status_code == 400)
+    # shipped can now also be cancelled (previously only delivered was allowed)
+    r = client.put(f"/orders/{fallback_order_id}/status", json={"status": "shipped"}, headers=staff_auth)
+    check("staff can ship too", r.status_code == 200, r.text)
+    r = client.put(f"/orders/{fallback_order_id}/status", json={"status": "cancelled"}, headers=staff_auth)
+    check("shipped -> cancelled is allowed", r.status_code == 200 and r.json()["order_status"] == "cancelled", r.text)
+    check("cancelled is terminal",
+          client.put(f"/orders/{fallback_order_id}/status", json={"status": "delivered"}, headers=admin_auth).status_code == 400)
+    # pending -> paid must go through payment confirmation, not a raw status flip,
+    # otherwise the order would be "paid" with a pending payment and no invoice.
+    r = client.post("/cart/add", json={"product_id": 5, "quantity": 1}, headers=auth)
+    r = client.post("/checkout?payment_method=cash", headers=auth)
+    raw_paid_order = r.json()["order_id"]
+    r = client.put(f"/orders/{raw_paid_order}/status", json={"status": "paid"}, headers=admin_auth)
+    check("pending -> paid rejected on the status endpoint (must confirm the payment)",
+          r.status_code == 400 and "confirm" in r.json()["detail"].lower(), r.text)
+    r = client.put(f"/orders/{raw_paid_order}/status", json={"status": "cancelled"}, headers=admin_auth)
+    check("pending -> cancelled is allowed", r.status_code == 200, r.text)
     check("staff/admin order list", client.get("/orders/all", headers=admin_auth).status_code == 200)
     check("customer denied /orders/all", client.get("/orders/all", headers=auth).status_code == 403)
 
@@ -374,8 +398,10 @@ try:
     r = client.post("/checkout", headers=admin_auth)
     check("admin can checkout", r.status_code == 200, r.text)
     admin_order = r.json()["order_id"]
-    r = client.post(f"/payments/mock/confirm/{admin_order}", headers=admin_auth)
+    r = client.post(f"/payments/confirm/{admin_order}", headers=admin_auth)
     check("admin can pay", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
+    check("confirming an already-paid order is rejected",
+          client.post(f"/payments/confirm/{admin_order}", headers=admin_auth).status_code == 400)
     r = client.get("/invoices", headers=admin_auth)
     check("admin gets own invoice after buying", any(i["order_id"] == admin_order for i in r.json()), r.text)
 
@@ -475,6 +501,24 @@ try:
         claims = auth_module._verify_google_id_token(_drifted_token)
     check("Google id token with a few seconds of future iat is tolerated (leeway)",
           claims["email"] == "clock-drift-test@example.com", str(claims))
+
+    # ---- Unknown API paths answer with JSON, not the SPA's HTML shell ----
+    # The SPA catch-all used to swallow every unmatched GET and return
+    # index.html with a 200, so a slightly-wrong API call looked like "the API
+    # returned HTML instead of JSON".
+    r = client.get("/auth/not-a-real-endpoint")
+    check("unknown path under an API prefix returns JSON, not HTML",
+          r.status_code == 404 and r.headers["content-type"].startswith("application/json"),
+          f"{r.status_code} {r.headers.get('content-type')} {r.text[:80]}")
+    r = client.get("/orders/nope/deeper/still")
+    check("deep unknown API path returns JSON too",
+          r.status_code == 404 and r.headers["content-type"].startswith("application/json"),
+          f"{r.status_code} {r.headers.get('content-type')} {r.text[:80]}")
+    # ...while a genuine SPA route still gets the app shell.
+    r = client.get("/some/client-side/route")
+    check("non-API paths still serve the SPA",
+          r.status_code == 200 and r.headers["content-type"].startswith("text/html"),
+          f"{r.status_code} {r.headers.get('content-type')}")
 
     # ---- Social login endpoints exist (503 until provider keys are configured) ----
     r = client.post("/auth/social/google", json={"id_token": "x"})

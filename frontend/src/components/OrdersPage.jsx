@@ -3,7 +3,26 @@ import { api } from "../api";
 import { isAdmin } from "../roles";
 
 const TRACK_STEPS = ["pending", "paid", "shipped", "delivered"];
-const NEXT_STATUS = { pending: ["cancelled"], paid: ["shipped", "cancelled"], shipped: ["delivered"] };
+
+// What an order in each state can become, and how that reads to a human.
+// Mirrors the backend exactly: "paid" is only ever reached by confirming the
+// payment (which also issues the invoice), never by a plain status flip.
+const STATUS_ACTIONS = {
+  pending: [
+    { kind: "confirm", label: "Confirm payment", icon: "✅", hint: "Marks the payment received, moves the order to paid and issues the invoice." },
+    { kind: "status", to: "cancelled", label: "Cancel order", icon: "✖", danger: true, hint: "Cancels the order. Nothing is charged." },
+  ],
+  paid: [
+    { kind: "status", to: "shipped", label: "Mark as shipped", icon: "🚚", hint: "Tells the customer their order is on the way." },
+    { kind: "status", to: "cancelled", label: "Cancel order", icon: "✖", danger: true, hint: "Cancels a paid order — refund the customer separately in Stripe." },
+  ],
+  shipped: [
+    { kind: "status", to: "delivered", label: "Mark as delivered", icon: "📦", hint: "Completes the order." },
+    { kind: "status", to: "cancelled", label: "Cancel order", icon: "✖", danger: true, hint: "Cancels an order already in transit." },
+  ],
+  delivered: [],
+  cancelled: [],
+};
 
 function Track({ status }) {
   if (status === "cancelled") return null;
@@ -20,7 +39,7 @@ function Track({ status }) {
   );
 }
 
-function MyOrders({ orders, invoices, onPayNow, onShop }) {
+function MyOrders({ orders, invoices, onShop }) {
   const invoiceFor = (orderId) => (invoices || []).find((i) => i.order_id === orderId);
   if (orders.length === 0) {
     return (
@@ -55,11 +74,11 @@ function MyOrders({ orders, invoices, onPayNow, onShop }) {
           )}
           <Track status={order.order_status} />
           {order.order_status === "pending" && order.payment_status === "pending" && (
-            order.payment?.payment_method === "cash" ? (
-              <span className="sub-note">Pay in cash when your order arrives — staff will confirm receipt.</span>
-            ) : (
-              <div><button className="btn btn-soft btn-sm" onClick={() => onPayNow(order.id)}>💳 Complete payment</button></div>
-            )
+            <span className="sub-note">
+              {order.payment?.payment_method === "cash"
+                ? "Pay in cash when your order arrives — staff will confirm receipt."
+                : "Waiting on payment confirmation. It updates here automatically once your card payment clears."}
+            </span>
           )}
         </div>
       ))}
@@ -67,58 +86,162 @@ function MyOrders({ orders, invoices, onPayNow, onShop }) {
   );
 }
 
-function AllOrders({ user, notify }) {
-  const [orders, setOrders] = useState([]);
-
-  const reload = () => api.allOrders().then(setOrders).catch(() => {});
-  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function changeStatus(id, status) {
-    try { await api.updateOrderStatus(id, status); reload(); notify("Order updated", `Order #${id} → ${status}`); }
-    catch (err) { notify("Update failed", err.message); }
-  }
-  async function confirmCash(id) {
-    try { await api.confirmCashPayment(id); reload(); notify("Cash received", `Order #${id} marked paid; invoice issued.`); }
-    catch (err) { notify("Confirm failed", err.message); }
-  }
-  async function remove(id) {
-    if (!window.confirm(`Delete order #${id} with its payment and invoice? Stock is restored unless shipped.`)) return;
-    try { await api.deleteOrder(id); reload(); notify("Order deleted", `Order #${id} removed.`); }
-    catch (err) { notify("Delete failed", err.message); }
-  }
+function StatusBox({ order, user, busy, onConfirm, onStatus, onDelete, onClose }) {
+  const actions = STATUS_ACTIONS[order.order_status] || [];
+  const isFinal = actions.length === 0;
+  const label = `#${order.order_number ?? order.id}`;
 
   return (
-    <div className="panel table-wrap">
-      <table className="data-table">
-        <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          {orders.map((o) => (
-            <tr key={o.id}>
-              <td>#{o.order_number ?? o.id}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
-              <td>{o.user_name}<div className="sub">{o.user_email}</div></td>
-              <td>{o.items.map((i) => `${i.product_name} × ${i.quantity}`).join(", ")}</td>
-              <td>${o.total.toFixed(2)}</td>
-              <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
-              <td><span className={`badge ${o.order_status}`}>{o.order_status}</span></td>
-              <td className="row-actions">
-                {o.payment?.payment_method === "cash" && o.payment_status === "pending" && (
-                  <button className="mini-btn" onClick={() => confirmCash(o.id)}>💵 cash received</button>
-                )}
-                {(NEXT_STATUS[o.order_status] || []).map((s) => (
-                  <button key={s} className="mini-btn" onClick={() => changeStatus(o.id, s)}>{s}</button>
-                ))}
-                {isAdmin(user.role) && <button className="mini-btn danger" onClick={() => remove(o.id)}>Delete</button>}
-              </td>
-            </tr>
+    <div className="modal" onClick={onClose}>
+      <div className="modal-backdrop" />
+      <div className="modal-card status-box" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close close-btn" onClick={onClose}>✕</button>
+        <p className="eyebrow">UPDATE ORDER STATUS</p>
+        <h2>Order {label}</h2>
+
+        <div className="status-now">
+          <div>
+            <small>Customer</small>
+            <strong>{order.user_name}</strong>
+          </div>
+          <div>
+            <small>Order status</small>
+            <span className={`badge ${order.order_status}`}>{order.order_status}</span>
+          </div>
+          <div>
+            <small>Payment</small>
+            <span className={`badge ${order.payment_status}`}>{order.payment_status}</span>
+          </div>
+          <div>
+            <small>Total</small>
+            <strong>${order.total.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div className="status-actions">
+          <p className="status-actions-title">
+            {isFinal
+              ? "This order is final — no further status changes are possible."
+              : "What would you like to do next?"}
+          </p>
+
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              className={`status-action ${a.danger ? "danger" : ""}`}
+              disabled={busy}
+              onClick={() =>
+                a.kind === "confirm" ? onConfirm(order) : onStatus(order, a.to)
+              }
+            >
+              <span className="ico">{a.icon}</span>
+              <span>
+                <strong>{a.label}</strong>
+                <small>{a.hint}</small>
+              </span>
+            </button>
           ))}
-          {orders.length === 0 && <tr><td colSpan={7} className="sub">No orders yet.</td></tr>}
-        </tbody>
-      </table>
+
+          {isAdmin(user.role) && (
+            <button className="status-action danger" disabled={busy} onClick={() => onDelete(order)}>
+              <span className="ico">🗑</span>
+              <span>
+                <strong>Delete order</strong>
+                <small>Admin only. Removes the order, its payment and invoice; stock is restored unless already shipped.</small>
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-export default function OrdersPage({ user, orders, invoices, canManage, onPayNow, onShop, notify }) {
+function AllOrders({ user, notify }) {
+  const [orders, setOrders] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => api.allOrders().then(setOrders).catch(() => {});
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const label = (o) => `#${o.order_number ?? o.id}`;
+
+  async function run(fn, onOk) {
+    setBusy(true);
+    try {
+      await fn();
+      const fresh = await api.allOrders();
+      setOrders(fresh);
+      setSelected(null);
+      onOk();
+    } catch (err) {
+      notify("Couldn't update the order", err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const confirmPayment = (o) =>
+    run(
+      // Cash gets the cash-specific endpoint so the intent stays explicit;
+      // everything else goes through the general confirm.
+      () => (o.payment?.payment_method === "cash"
+        ? api.confirmCashPayment(o.id)
+        : api.confirmPayment(o.id)),
+      () => notify("Payment confirmed", `Order ${label(o)} is now paid — invoice issued.`),
+    );
+
+  const changeStatus = (o, status) =>
+    run(() => api.updateOrderStatus(o.id, status),
+        () => notify("Order updated", `Order ${label(o)} → ${status}.`));
+
+  const remove = (o) => {
+    if (!window.confirm(`Delete order ${label(o)} with its payment and invoice? Stock is restored unless shipped.`)) return;
+    return run(() => api.deleteOrder(o.id),
+               () => notify("Order deleted", `Order ${label(o)} removed.`));
+  };
+
+  return (
+    <>
+      <div className="panel table-wrap">
+        <table className="data-table">
+          <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {orders.map((o) => (
+              <tr key={o.id}>
+                <td>{label(o)}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
+                <td>{o.user_name}<div className="sub">{o.user_email}</div></td>
+                <td>{o.items.map((i) => `${i.product_name} × ${i.quantity}`).join(", ")}</td>
+                <td>${o.total.toFixed(2)}</td>
+                <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
+                <td><span className={`badge ${o.order_status}`}>{o.order_status}</span></td>
+                <td className="row-actions">
+                  <button className="mini-btn" onClick={() => setSelected(o)}>Update status</button>
+                </td>
+              </tr>
+            ))}
+            {orders.length === 0 && <tr><td colSpan={7} className="sub">No orders yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && (
+        <StatusBox
+          order={selected}
+          user={user}
+          busy={busy}
+          onConfirm={confirmPayment}
+          onStatus={changeStatus}
+          onDelete={remove}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
+  );
+}
+
+export default function OrdersPage({ user, orders, invoices, canManage, onShop, notify }) {
   return (
     <>
       <div className="page-head">
@@ -129,7 +252,7 @@ export default function OrdersPage({ user, orders, invoices, canManage, onPayNow
       </div>
       {canManage
         ? <AllOrders user={user} notify={notify} />
-        : <MyOrders orders={orders} invoices={invoices} onPayNow={onPayNow} onShop={onShop} />}
+        : <MyOrders orders={orders} invoices={invoices} onShop={onShop} />}
     </>
   );
 }

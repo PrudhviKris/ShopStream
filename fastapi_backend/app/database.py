@@ -5,7 +5,7 @@ from .config import BASE_DIR, settings
 
 
 def _ensure_mysql_database() -> None:
-    """Create the MySQL schema if it doesn't exist yet (first run convenience)."""
+    
     server_url = settings.DATABASE_URL.rsplit("/", 1)[0]
     tmp_engine = create_engine(server_url, pool_pre_ping=True)
     with tmp_engine.connect() as conn:

@@ -18,7 +18,8 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-# Values copied verbatim from .env.example mean "not configured yet".
+
+
 _PLACEHOLDERS = {
     "your-mysql-root-password",
     "sk_test_...",

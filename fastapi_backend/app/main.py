@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -98,12 +98,42 @@ def health():
     return {"service": settings.APP_NAME, "version": settings.API_VERSION, "status": "ok"}
 
 
+def _api_prefixes(routes) -> set:
+    """Every first path segment the API itself owns.
+
+    The SPA catch-all below must not swallow these: an unknown path under one
+    of them is a wrong API call and has to answer with JSON, not the
+    storefront's HTML shell (which reads as "the API returned HTML").
+    Included routers aren't flattened into app.routes — FastAPI keeps each as a
+    composite object that holds the real routes on `.original_router` — so walk
+    into those rather than only reading top-level paths.
+    """
+    found = set()
+    for route in routes:
+        path = getattr(route, "path", None)
+        if path:
+            segment = path.strip("/").split("/")[0]
+            if segment and not segment.startswith("{"):
+                found.add(segment)
+        nested = getattr(route, "original_router", None) or getattr(route, "routes", None)
+        if nested is not None:
+            found |= _api_prefixes(getattr(nested, "routes", nested))
+    return found
+
+
+API_PREFIXES = _api_prefixes(app.routes)
+
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="spa-assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
+        if full_path.strip("/").split("/")[0] in API_PREFIXES:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No such API endpoint: /{full_path}. See /docs for the available routes.",
+            )
         candidate = FRONTEND_DIST / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)

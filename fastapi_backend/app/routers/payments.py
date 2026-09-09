@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
@@ -116,28 +116,45 @@ async def stripe_webhook(
         raise
 
 
-@router.post("/mock/confirm/{order_id}", response_model=PaymentOut)
-def mock_confirm_payment(
-    order_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-    outcome: str = "success",
-):
-    """Development-only endpoint: simulates the Stripe webhook when running
-    in mock mode (no STRIPE_SECRET_KEY). Disabled automatically in live mode."""
-    if stripe_service.is_live():
-        raise HTTPException(status_code=404, detail="Not available in live mode")
+def _confirm_payment_for_order(
+    db: Session, order_id: int, outcome: str, cash_only: bool = False
+) -> Payment:
+    """Shared logic behind the staff/admin payment-confirmation endpoints.
+
+    Works in every mode: Stripe normally confirms itself via the webhook, but
+    staff still need a manual override for when a webhook never arrives, or the
+    customer paid by another route — that's the whole reason this exists.
+    """
     payment = db.query(Payment).filter(Payment.order_id == order_id).first()
     if payment is None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    if payment.order.user_id != user.id and user.role == UserRole.customer:
-        raise HTTPException(status_code=403, detail="Not your order")
+        raise HTTPException(status_code=404, detail="Payment not found for this order")
+    if cash_only and payment.payment_method != "cash":
+        raise HTTPException(status_code=400, detail="Not a cash-on-delivery payment")
     if outcome == "success":
+        if payment.status == PaymentStatus.succeeded:
+            raise HTTPException(status_code=400, detail="Payment already confirmed")
         _mark_paid(db, payment)
     else:
         _mark_failed(db, payment)
     db.refresh(payment)
     return payment
+
+
+@router.post("/confirm/{order_id}", response_model=PaymentOut)
+def confirm_payment(
+    order_id: int,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_or_admin),
+    outcome: str = Query(default="success", pattern="^(success|failed)$"),
+):
+    """Staff/admin: confirm (or fail) an order's payment by order id.
+
+    Marks the payment succeeded, moves the order to `paid`, issues the invoice
+    and notifies the customer — the same path the Stripe webhook takes, so a
+    manually confirmed order ends up in exactly the same state as an
+    automatically confirmed one. Works for Stripe and cash alike.
+    """
+    return _confirm_payment_for_order(db, order_id, outcome)
 
 
 @router.get("/all", response_model=List[AdminPaymentOut])
@@ -165,17 +182,13 @@ def confirm_cash_payment(
     db: Session = Depends(get_db),
     _staff: User = Depends(require_staff_or_admin),
 ):
-    """Staff/admin confirm cash was received on delivery -> order paid + invoice."""
-    payment = db.query(Payment).filter(Payment.order_id == order_id).first()
-    if payment is None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    if payment.payment_method != "cash":
-        raise HTTPException(status_code=400, detail="Not a cash-on-delivery payment")
-    if payment.status == PaymentStatus.succeeded:
-        raise HTTPException(status_code=400, detail="Payment already confirmed")
-    _mark_paid(db, payment)
-    db.refresh(payment)
-    return payment
+    """Staff/admin confirm cash was received on delivery -> order paid + invoice.
+
+    Same as POST /payments/confirm/{order_id} but refuses anything that isn't a
+    cash-on-delivery payment, so the "cash received" action can't be used by
+    mistake on a card order that hasn't actually been paid.
+    """
+    return _confirm_payment_for_order(db, order_id, "success", cash_only=True)
 
 
 @router.delete("/{payment_id}", status_code=204)

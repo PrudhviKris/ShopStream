@@ -94,17 +94,28 @@ def update_order_status(
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # "paid" is deliberately absent: an order only becomes paid through payment
+    # confirmation (Stripe webhook, or POST /payments/confirm/{order_id}), which
+    # also settles the payment record and issues the invoice. Allowing it here
+    # would leave an order marked paid with a still-pending payment and no invoice.
     valid_transitions = {
-        OrderStatus.pending: {OrderStatus.paid, OrderStatus.cancelled},
+        OrderStatus.pending: {OrderStatus.cancelled},
         OrderStatus.paid: {OrderStatus.shipped, OrderStatus.cancelled},
-        OrderStatus.shipped: {OrderStatus.delivered},
+        OrderStatus.shipped: {OrderStatus.delivered, OrderStatus.cancelled},
         OrderStatus.delivered: set(),
         OrderStatus.cancelled: set(),
     }
     if body.status not in valid_transitions[order.order_status]:
+        allowed = sorted(s.value for s in valid_transitions[order.order_status])
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot transition from '{order.order_status.value}' to '{body.status.value}'",
+            detail=(
+                f"Cannot change an order that is '{order.order_status.value}' to "
+                f"'{body.status.value}'. Allowed from here: "
+                + (", ".join(allowed) if allowed else "nothing — this order is final")
+                + (". Use POST /payments/confirm/{order_id} to mark it paid."
+                   if order.order_status == OrderStatus.pending else "")
+            ),
         )
     order.order_status = body.status
     db.commit()
