@@ -416,10 +416,13 @@ try:
     # ---- Invoices ----
     r = client.get("/invoices", headers=auth)
     check("customer sees own invoices", r.status_code == 200 and len(r.json()) >= 1, r.text)
-    invoice = r.json()[0]
+    # Pick the invoice for *this* order rather than assuming it sorts first —
+    # several orders get invoiced within the same second during this run, so
+    # "newest first" is ambiguous and [0] made the assertion flaky.
+    invoice = next((i for i in r.json() if i["order_id"] == order_id), None)
     check("invoice matches paid order",
-          invoice["order_id"] == order_id and invoice["total"] == co["amount"]
-          and invoice["invoice_number"].startswith("INV-"), str(invoice))
+          invoice is not None and invoice["total"] == co["amount"]
+          and invoice["invoice_number"].startswith("INV-"), str(r.json()))
     r = client.get(f"/invoices/{invoice['id']}", headers=auth)
     check("customer reads own invoice", r.status_code == 200)
     check("customer denied /invoices/all", client.get("/invoices/all", headers=auth).status_code == 403)
