@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { formatMoney } from "../money";
 
 function MyPayments({ orders }) {
   const payments = orders.filter((o) => o.payment).map((o) => ({ ...o.payment, order_id: o.id }));
@@ -15,7 +16,7 @@ function MyPayments({ orders }) {
             <tr key={p.id}>
               <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
               <td>#{p.order_number ?? p.order_id}</td>
-              <td>{p.currency.toUpperCase()} {p.amount.toFixed(2)}</td>
+              <td>{formatMoney(p.amount, p.currency)}</td>
               <td><span className={`badge ${p.payment_method}`}>{p.payment_method}</span></td>
               <td className="mono">{p.transaction_id}</td>
               <td><span className={`badge ${p.status}`}>{p.status}</span></td>
@@ -48,7 +49,7 @@ function AllPayments({ notify }) {
               <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
               <td>#{p.order_number ?? p.order_id}</td>
               <td>{p.user_name}<div className="sub">{p.user_email}</div></td>
-              <td>{p.currency.toUpperCase()} {p.amount.toFixed(2)}</td>
+              <td>{formatMoney(p.amount, p.currency)}</td>
               <td><span className={`badge ${p.payment_method}`}>{p.payment_method}</span></td>
               <td className="mono">{p.transaction_id}</td>
               <td><span className={`badge ${p.status}`}>{p.status}</span></td>

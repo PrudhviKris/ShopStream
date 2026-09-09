@@ -1,3 +1,4 @@
+import { formatMoney } from "../money";
 export default function CartDrawer({ open, cart, products, onClose, onUpdateQty, onRemove, onCheckout, busy }) {
   if (!open) return null;
   const imageFor = (id) => products.find((p) => p.id === id)?.images?.[0];
@@ -28,7 +29,7 @@ export default function CartDrawer({ open, cart, products, onClose, onUpdateQty,
                 <img src={imageFor(item.product_id)} alt="" />
                 <div className="meta">
                   <strong>{item.name}</strong>
-                  <small>${item.unit_price.toFixed(2)} each</small>
+                  <small>{formatMoney(item.unit_price)} each</small>
                   {!item.in_stock && <small style={{ color: "var(--danger)", display: "block" }}>Not enough stock</small>}
                   <div className="qty" style={{ marginTop: 8, width: "fit-content" }}>
                     <button onClick={() => onUpdateQty(item.product_id, item.quantity - 1)}>−</button>
@@ -37,7 +38,7 @@ export default function CartDrawer({ open, cart, products, onClose, onUpdateQty,
                   </div>
                 </div>
                 <div className="right">
-                  <span className="price" style={{ fontSize: 15 }}>${item.item_total.toFixed(2)}</span>
+                  <span className="price" style={{ fontSize: 15 }}>{formatMoney(item.item_total)}</span>
                   <button className="link-danger" onClick={() => onRemove(item.product_id)}>Remove</button>
                 </div>
               </div>
@@ -47,9 +48,9 @@ export default function CartDrawer({ open, cart, products, onClose, onUpdateQty,
 
         {items.length > 0 && cart && (
           <div className="cart-footer">
-            <div className="sum-row"><span>Subtotal</span><span>${cart.cart_total.toFixed(2)}</span></div>
-            <div className="sum-row"><span>Tax ({(cart.tax_rate * 100).toFixed(0)}%)</span><span>${cart.tax.toFixed(2)}</span></div>
-            <div className="sum-row total"><span>Total</span><span>${cart.grand_total.toFixed(2)}</span></div>
+            <div className="sum-row"><span>Subtotal</span><span>{formatMoney(cart.cart_total)}</span></div>
+            <div className="sum-row"><span>Tax ({(cart.tax_rate * 100).toFixed(0)}%)</span><span>{formatMoney(cart.tax)}</span></div>
+            <div className="sum-row total"><span>Total</span><span>{formatMoney(cart.grand_total)}</span></div>
             <div className="pay-btns">
               <button className="btn btn-primary btn-block" disabled={busy} onClick={() => onCheckout("stripe")}>
                 {busy ? "Processing…" : "💳 Pay with Stripe"}

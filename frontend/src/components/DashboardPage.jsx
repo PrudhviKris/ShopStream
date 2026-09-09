@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ROLE_META, roleMeta } from "../roles";
+import { formatMoneyShort } from "../money";
 
 export default function DashboardPage({ user, products, cart, orders, onNavigate }) {
   const meta = roleMeta(user.role);
@@ -62,7 +63,7 @@ export default function DashboardPage({ user, products, cart, orders, onNavigate
         {user.role === "admin" && adminStats ? (
           <div className="stat">
             <small>TOTAL REVENUE</small>
-            <strong>₹{adminStats.revenue.toFixed(0)}</strong>
+            <strong>{formatMoneyShort(adminStats.revenue)}</strong>
             <span>{adminStats.totalOrders} orders · {adminStats.customers} customers</span>
           </div>
         ) : (

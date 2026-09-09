@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatMoney } from "../money";
 
 const CATEGORIES = ["electronics", "clothing", "home", "sports"];
 
@@ -27,18 +28,18 @@ export function ProductCard({ product, onOpen, onAdd, canAdd, canManage, onEdit,
         <h3 className="title" onClick={() => onOpen(product)}>{product.name}</h3>
         <div className="price-row2">
           <div>
-            <span className="price">${product.price.toFixed(2)}</span>
+            <span className="price">{formatMoney(product.price)}</span>
             <div className="stock-mini">{product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}</div>
           </div>
-          {!canManage && (
-            <button
-              className="add-btn" title={canAdd ? "Add to cart" : "Sign in to add"}
-              disabled={product.stock === 0}
-              onClick={(e) => { e.stopPropagation(); onAdd(product); }}
-            >
-              +
-            </button>
-          )}
+          {/* Staff and admin shop like anyone else — the backend has always
+              allowed it, so the catalog must offer them the cart too. */}
+          <button
+            className="add-btn" title={canAdd ? "Add to cart" : "Sign in to add"}
+            disabled={product.stock === 0}
+            onClick={(e) => { e.stopPropagation(); onAdd(product); }}
+          >
+            +
+          </button>
         </div>
         {canManage && (
           <div className="manage-row">
@@ -68,7 +69,7 @@ export function Filters({ filters, setFilters }) {
         </div>
       </div>
       <div className="filter-group">
-        <label className="title">Price range ($)</label>
+        <label className="title">Price range (₹)</label>
         <div className="price-row">
           <input type="number" min="0" placeholder="Min" value={filters.min_price} onChange={(e) => set({ min_price: e.target.value })} />
           <input type="number" min="0" placeholder="Max" value={filters.max_price} onChange={(e) => set({ max_price: e.target.value })} />
@@ -100,7 +101,7 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd }) {
         <div>
           <span className="cat">{product.category}</span>
           <h2 style={{ margin: "6px 0 4px" }}>{product.name}</h2>
-          <span className="price" style={{ fontSize: 22 }}>${product.price.toFixed(2)}</span>
+          <span className="price" style={{ fontSize: 22 }}>{formatMoney(product.price)}</span>
           <p className="muted" style={{ margin: "10px 0" }}>{product.description}</p>
           <span className={`stock-note ${stockClass}`}>{stockText}</span>
           <div className="qty-row">
@@ -110,7 +111,7 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd }) {
               <button onClick={() => setQty((q) => Math.min(product.stock || 1, q + 1))}>+</button>
             </div>
             <button className="btn btn-primary" style={{ flex: 1 }} disabled={product.stock === 0} onClick={() => onAdd(product, qty)}>
-              🛒 Add to cart — ${(product.price * qty).toFixed(2)}
+              🛒 Add to cart — {formatMoney(product.price * qty)}
             </button>
           </div>
         </div>

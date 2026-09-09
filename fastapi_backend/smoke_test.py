@@ -423,6 +423,18 @@ try:
     check("admin can pay", r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
     check("confirming an already-paid order is rejected",
           client.post(f"/payments/confirm/{admin_order}", headers=admin_auth).status_code == 400)
+    # Staff shop too — same cart/checkout/pay path as any customer.
+    r = client.post("/cart/add", json={"product_id": 3, "quantity": 1}, headers=staff_auth)
+    check("staff can add to cart", r.status_code == 201, r.text)
+    r = client.post("/checkout?payment_method=cash", headers=staff_auth)
+    check("staff can checkout", r.status_code == 200, r.text)
+    staff_order = r.json()["order_id"]
+    check("staff sees their own purchase in their order list",
+          any(o["id"] == staff_order for o in client.get("/orders", headers=staff_auth).json()))
+    r = client.post(f"/payments/confirm/{staff_order}", headers=admin_auth)
+    check("staff's own order can be confirmed and invoiced",
+          r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
+
     r = client.get("/invoices", headers=admin_auth)
     check("admin gets own invoice after buying", any(i["order_id"] == admin_order for i in r.json()), r.text)
 

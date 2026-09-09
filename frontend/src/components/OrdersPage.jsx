@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { isAdmin } from "../roles";
+import { formatMoney } from "../money";
 
 const TRACK_STEPS = ["pending", "paid", "shipped", "delivered"];
 
@@ -61,7 +62,7 @@ function MyOrders({ orders, invoices, onShop }) {
             <span className={`badge ${order.order_status}`}>{order.order_status}</span>
             <span className={`badge ${order.payment_status}`}>payment: {order.payment_status}</span>
             {invoiceFor(order.id) && <span className="invoice-tag">🧾 {invoiceFor(order.id).invoice_number}</span>}
-            <span className="total">${order.total.toFixed(2)}</span>
+            <span className="total">{formatMoney(order.total)}</span>
           </div>
           <div className="order-items">{order.items.map((i) => `${i.product_name} × ${i.quantity}`).join("  ·  ")}</div>
           {order.payment && (
@@ -114,7 +115,7 @@ function StatusBox({ order, user, busy, onConfirm, onStatus, onDelete, onClose }
           </div>
           <div>
             <small>Total</small>
-            <strong>${order.total.toFixed(2)}</strong>
+            <strong>{formatMoney(order.total)}</strong>
           </div>
         </div>
 
@@ -213,7 +214,7 @@ function AllOrders({ user, notify }) {
                 <td>{label(o)}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
                 <td>{o.user_name}<div className="sub">{o.user_email}</div></td>
                 <td>{o.items.map((i) => `${i.product_name} × ${i.quantity}`).join(", ")}</td>
-                <td>${o.total.toFixed(2)}</td>
+                <td>{formatMoney(o.total)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
                 <td><span className={`badge ${o.order_status}`}>{o.order_status}</span></td>
                 <td className="row-actions">
@@ -242,17 +243,36 @@ function AllOrders({ user, notify }) {
 }
 
 export default function OrdersPage({ user, orders, invoices, canManage, onShop, notify }) {
+  // Staff and admin shop here too, so they get both views: everyone's orders to
+  // work through, and their own purchases as a customer.
+  const [tab, setTab] = useState("all");
+  const showingMine = !canManage || tab === "mine";
+
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>{canManage ? "Order management" : "My orders"}</h1>
-          <p>{canManage ? "Every customer's order — update status or confirm cash payments." : "Track and manage your own orders."}</p>
+          <h1>{showingMine ? "My orders" : "Order management"}</h1>
+          <p>
+            {showingMine
+              ? "Track and manage your own purchases."
+              : "Every customer's order — update status or confirm payments."}
+          </p>
         </div>
+        {canManage && (
+          <div className="tabs">
+            <button className={`tab ${tab === "all" ? "on" : ""}`} onClick={() => setTab("all")}>
+              📋 All orders
+            </button>
+            <button className={`tab ${tab === "mine" ? "on" : ""}`} onClick={() => setTab("mine")}>
+              🛍️ My orders ({orders.length})
+            </button>
+          </div>
+        )}
       </div>
-      {canManage
-        ? <AllOrders user={user} notify={notify} />
-        : <MyOrders orders={orders} invoices={invoices} onShop={onShop} />}
+      {showingMine
+        ? <MyOrders orders={orders} invoices={invoices} onShop={onShop} />
+        : <AllOrders user={user} notify={notify} />}
     </>
   );
 }
