@@ -96,6 +96,15 @@ class Settings:
     CHECKOUT_SUCCESS_URL = os.getenv("CHECKOUT_SUCCESS_URL") or f"{PUBLIC_URL}/receipt"
     CHECKOUT_CANCEL_URL = os.getenv("CHECKOUT_CANCEL_URL") or f"{PUBLIC_URL}/receipt?cancelled=1"
 
+    # Email / SMTP
+    EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "true").lower() == "true"
+    SMTP_HOST = os.getenv("SMTP_HOST", "127.0.0.1")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
+    EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@ecommerce.local")
+
     # Cart
     TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))  # 8% default, set 0 to disable
 
