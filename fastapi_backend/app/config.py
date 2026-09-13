@@ -116,6 +116,11 @@ class Settings:
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"  # STARTTLS (port 587)
     SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"  # implicit TLS (port 465)
     SMTP_TIMEOUT = float(os.getenv("SMTP_TIMEOUT", "15"))
+    # Email/password accounts never verify their address, so by default SMTP
+    # doesn't send to them (a made-up bruce@gmail.com may be a stranger's
+    # inbox). They still read every email in the in-app inbox. Set true once
+    # local users register with addresses they really own.
+    SMTP_SEND_TO_LOCAL_ACCOUNTS = os.getenv("SMTP_SEND_TO_LOCAL_ACCOUNTS", "false").lower() == "true"
     EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@ecommerce.local")
 
     # Cart

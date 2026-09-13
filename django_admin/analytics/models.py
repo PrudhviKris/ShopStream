@@ -195,6 +195,7 @@ class Email(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="stored")
     error = models.TextField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
+    is_read = models.BooleanField(default=False, verbose_name="read by recipient")
     created_at = models.DateTimeField()
 
     class Meta:

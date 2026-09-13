@@ -7,12 +7,12 @@ const LINKS = [
   { id: "orders", label: "Orders", icon: "📦" },
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "invoices", label: "Invoices", icon: "🧾" },
-  { id: "emails", label: "Emails", icon: "✉️" },
+  { id: "emails", label: "Inbox", icon: "✉️" },
   { id: "analytics", label: "Analytics", icon: "📈", roles: ["admin"], section: "Admin panel" },
   { id: "users", label: "Users", icon: "👥", roles: ["admin"] },
 ];
 
-export default function Sidebar({ user, view, onNavigate }) {
+export default function Sidebar({ user, view, onNavigate, badges = {} }) {
   const meta = roleMeta(user.role);
   return (
     <aside className="sidebar" style={{ "--role-color": meta.color, "--role-soft": meta.soft }}>
@@ -29,6 +29,9 @@ export default function Sidebar({ user, view, onNavigate }) {
             {l.section && <small className="side-section">{l.section}</small>}
             <button className={view === l.id ? "active" : ""} onClick={() => onNavigate(l.id)}>
               <span>{l.icon}</span> {l.label}
+              {badges[l.id] > 0 && (
+                <span className="side-badge" aria-label={`${badges[l.id]} unread`}>{badges[l.id]}</span>
+              )}
             </button>
           </div>
         ))}

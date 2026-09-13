@@ -289,15 +289,18 @@ class EmailStatus(str, enum.Enum):
     queued = "queued"    # handed to the SMTP worker, not delivered yet
     sent = "sent"        # accepted by the SMTP server
     failed = "failed"    # SMTP refused or unreachable — see `error`
-    skipped = "skipped"  # placeholder address (e.g. Facebook account with no email)
+    skipped = "skipped"  # not sent over SMTP: placeholder address, or an unverified
+                         # local account (the inbox copy is still readable in the app)
 
 
 class DevelopmentEmail(Base):
     """Every outgoing email, whichever backend delivered it.
 
-    With EMAIL_BACKEND=database this *is* the delivery (a dev inbox); with
-    EMAIL_BACKEND=smtp it's the outbox log recording whether each message
-    actually went out.
+    Doubles as each user's in-app inbox (GET /dev/emails): the copy is always
+    kept, so a user can read their mail even when the address can't receive
+    it — a made-up address on a local account, or no mail server at all.
+    With EMAIL_BACKEND=smtp it's also the outbox log recording whether each
+    message actually went out.
     """
 
     __tablename__ = "development_emails"
@@ -314,6 +317,8 @@ class DevelopmentEmail(Base):
     status = Column(String(20), default=EmailStatus.stored.value, nullable=False, index=True)
     error = Column(Text, nullable=True)
     sent_at = Column(DateTime, nullable=True)
+    # Inbox state — whether the recipient has opened it in the app.
+    is_read = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

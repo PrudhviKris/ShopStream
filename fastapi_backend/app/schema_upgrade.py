@@ -21,6 +21,7 @@ ADDED_COLUMNS = {
         ("status", "VARCHAR(20) NOT NULL DEFAULT 'stored'"),
         ("error", "TEXT NULL"),
         ("sent_at", "DATETIME NULL"),
+        ("is_read", "BOOLEAN NOT NULL DEFAULT 0"),
     ],
 }
 

@@ -160,7 +160,16 @@ go out together.
   blocks checkout. Failures are recorded (`status=failed`, `error`) and admins can retry
   them (`POST /admin/emails/{id}/retry`). SendGrid and AWS SES are SMTP relays, so they
   plug in here too; see the comments in `app/config.py` for their host/port/credentials.
-  Placeholder addresses (Facebook accounts without an email) are skipped.
+  Placeholder addresses (Facebook accounts without an email) are skipped, and so are
+  local email/password accounts (their address is never verified) unless
+  `SMTP_SEND_TO_LOCAL_ACCOUNTS=true`.
+
+**Inbox** — every user reads their emails in the storefront's **Inbox** page, even when
+  the address is made up (e.g. a local account registered as `bruce@gmail.com`): a copy of
+  each email is always kept. Unread emails are marked and counted in the sidebar badge,
+  open one to mark it read, or "Mark all read". API: `GET /dev/emails` (`?unread_only=true`),
+  `GET /dev/emails/summary`, `POST /dev/emails/read` (`{"email_ids": [..]}` or
+  `{"all": true}`); new mail arrives live as the `email` WebSocket event.
 
 **Real-time (WebSockets)** — connect to
 `ws://localhost:8000/ws/notifications?token=<access_token>`. Every message is

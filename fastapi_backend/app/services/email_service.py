@@ -1,6 +1,8 @@
 """Email service.
 
-Every email is recorded in `development_emails`. What happens next depends on
+Every email is recorded in `development_emails`, which is also the user's
+in-app inbox (GET /dev/emails) — so every user can read their mail, including
+local accounts whose address is made up. What else happens depends on
 EMAIL_BACKEND:
 
 * ``database`` (default) — that row *is* the delivery. It shows up in the
@@ -27,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import DevelopmentEmail, EmailStatus, User
+from .notification_service import publish
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,34 @@ _UNDELIVERABLE_SUFFIXES = (".example.com", "@example.com", ".invalid", ".test", 
 
 def _undeliverable(address: str) -> bool:
     return address.lower().endswith(_UNDELIVERABLE_SUFFIXES)
+
+
+def smtp_skip_reason(user: User) -> Optional[str]:
+    """Why SMTP must not send to this user, or None when it may.
+
+    Email/password accounts never prove they own their address (there is no
+    verification step), so a made-up "bruce@gmail.com" could belong to a
+    stranger. Unless SMTP_SEND_TO_LOCAL_ACCOUNTS is on, those users get only
+    the in-app inbox copy. Google accounts carry a Google-verified address.
+    """
+    if _undeliverable(user.email):
+        return "Placeholder address — nothing to deliver to. Readable in the app inbox."
+    if (user.auth_provider or "local") == "local" and not settings.SMTP_SEND_TO_LOCAL_ACCOUNTS:
+        return ("Local account with an unverified address — not sent over SMTP "
+                "(SMTP_SEND_TO_LOCAL_ACCOUNTS=false). Readable in the app inbox.")
+    return None
+
+
+def delivery_description(user: User) -> str:
+    """How mail to this user is delivered, in words the inbox page can show."""
+    if not settings.EMAIL_ENABLED:
+        return "Email is turned off for this store."
+    if settings.EMAIL_BACKEND != "smtp":
+        return "Kept in this in-app inbox only — no email is sent to the address."
+    reason = smtp_skip_reason(user)
+    if reason:
+        return "Kept in this in-app inbox only — the address isn't verified, so nothing is sent to it."
+    return "Sent to the address, with a copy kept in this inbox."
 
 
 def send_email(
@@ -59,10 +90,11 @@ def send_email(
     if not settings.EMAIL_ENABLED or not user.email:
         return None
 
+    skip_reason = smtp_skip_reason(user) if settings.EMAIL_BACKEND == "smtp" else None
     if settings.EMAIL_BACKEND != "smtp":
         status = EmailStatus.stored
-    elif _undeliverable(user.email):
-        # Only matters when really sending: the database inbox stores these fine.
+    elif skip_reason:
+        # Only matters when really sending: the inbox copy is kept either way.
         status = EmailStatus.skipped
     else:
         status = EmailStatus.queued
@@ -76,7 +108,7 @@ def send_email(
         html_body=html_body,
         notification_type=notification_type,
         status=status.value,
-        error="Placeholder address — nothing to deliver to." if status == EmailStatus.skipped else None,
+        error=skip_reason,
     )
     db.add(email)
     db.commit()
@@ -84,6 +116,20 @@ def send_email(
 
     if status == EmailStatus.queued:
         _smtp_pool.submit(_deliver, email.id)
+
+    # New mail → the recipient's open tabs update their inbox and unread badge.
+    unread = (
+        db.query(DevelopmentEmail)
+        .filter(DevelopmentEmail.user_id == user.id, DevelopmentEmail.is_read.is_(False))
+        .count()
+    )
+    publish([user.id], "email", {
+        "id": email.id,
+        "subject": email.subject,
+        "notification_type": email.notification_type,
+        "created_at": email.created_at,
+        "unread_count": unread,
+    })
     return email
 
 

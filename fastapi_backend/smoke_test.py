@@ -547,9 +547,9 @@ try:
             _time.sleep(0.1)
 
     sent_messages = []
-    # Test users have @example.com addresses, which real sends skip; delivery
+    # Test users are local accounts on @example.com, which real sends skip; delivery
     # here is mocked or refused, so let them through for these checks.
-    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "_undeliverable", return_value=False), \
+    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "smtp_skip_reason", return_value=None), \
             _p.object(_es, "smtp_send", side_effect=sent_messages.append):
         with SessionLocal() as _db:
             row = _es.send_email(_db, _db.get(_User, customer_id), "SMTP check", "plain body",
@@ -567,7 +567,7 @@ try:
 
     # A real SMTP connection attempt to a port nothing listens on: the call
     # still returns normally and the failure is recorded, not raised.
-    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "_undeliverable", return_value=False), \
+    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "smtp_skip_reason", return_value=None), \
             _p.object(settings, "SMTP_HOST", "127.0.0.1"), \
             _p.object(settings, "SMTP_PORT", 9), _p.object(settings, "SMTP_TIMEOUT", 3):
         with SessionLocal() as _db:
@@ -582,6 +582,76 @@ try:
             check("admin can retry a failed email", r.status_code == 200 and r.json()["status"] == "queued", r.text)
             row = _wait_status(failing_id)
     check("retried email is delivered", row.status == "sent", row.status)
+
+    # ---- Inbox for a local account with a made-up @gmail.com address ----
+    # The address can't be trusted to receive mail, so the in-app inbox is how
+    # this user reads what the store sent them.
+    INBOX_EMAIL = f"smoke-inbox-{RUN_ID}@gmail.com"
+    inbox_tokens, inbox_auth, inbox_id = register(INBOX_EMAIL, "Smoke Inbox User")
+    r = client.get("/dev/emails/summary", headers=inbox_auth)
+    check("a new local user starts with an empty inbox",
+          r.status_code == 200 and r.json()["address"] == INBOX_EMAIL
+          and r.json()["total"] == 0 and r.json()["unread_count"] == 0, r.text)
+    with client.websocket_connect(f"/ws/notifications?token={inbox_tokens['access_token']}") as ws:
+        ws.receive_json()
+        client.post("/cart/add", json={"product_id": 5, "quantity": 1}, headers=inbox_auth)
+        r = client.post("/checkout?payment_method=cash", headers=inbox_auth)
+        inbox_order_id = r.json()["order_id"]
+        msg, seen = receive_until(ws, lambda m: m["event"] == "email")
+        check("new mail is pushed live with the unread count",
+              msg is not None and msg["data"]["subject"].startswith("Order confirmation")
+              and msg["data"]["unread_count"] == 1, str(seen))
+    summary = client.get("/dev/emails/summary", headers=inbox_auth).json()
+    check("the inbox summary counts the new unread email and says it stays in the app",
+          summary["total"] == 1 and summary["unread_count"] == 1 and "in-app inbox" in summary["delivery"],
+          str(summary))
+    inbox = client.get("/dev/emails?unread_only=true", headers=inbox_auth).json()
+    check("the local gmail user can read the full email in their inbox",
+          len(inbox) == 1 and inbox[0]["to_email"] == INBOX_EMAIL and inbox[0]["is_read"] is False
+          and "Smoke Inbox User" in inbox[0]["body"] and inbox[0]["html_body"], str(inbox)[:300])
+    check("reading one email doesn't mark it read on its own",
+          client.get(f"/dev/emails/{inbox[0]['id']}", headers=inbox_auth).json()["is_read"] is False)
+    check("someone else can't mark your email read",
+          client.post("/dev/emails/read", json={"email_ids": [inbox[0]["id"]]}, headers=auth).json()["marked_read"] == 0)
+    check("an empty id list marks nothing",
+          client.post("/dev/emails/read", json={"email_ids": []}, headers=inbox_auth).json()["marked_read"] == 0)
+    with client.websocket_connect(f"/ws/notifications?token={inbox_tokens['access_token']}") as ws:
+        ws.receive_json()
+        r = client.post("/dev/emails/read", json={"email_ids": [inbox[0]["id"]]}, headers=inbox_auth)
+        check("POST /dev/emails/read marks it read",
+              r.status_code == 200 and r.json() == {"marked_read": 1, "unread_count": 0}, r.text)
+        msg, seen = receive_until(ws, lambda m: m["event"] == "emails_read")
+        check("emails_read pushed so other tabs clear the badge",
+              msg is not None and msg["data"]["unread_count"] == 0, str(seen))
+    check("unread-only is now empty and the email is still in the inbox",
+          client.get("/dev/emails?unread_only=true", headers=inbox_auth).json() == []
+          and len(client.get("/dev/emails", headers=inbox_auth).json()) == 1)
+
+    # With real SMTP on, a local account's unverified address is never emailed —
+    # the copy still lands in the inbox. Google accounts (verified) are emailed.
+    smtp_calls = []
+    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "smtp_send", side_effect=smtp_calls.append):
+        with SessionLocal() as _db:
+            local_row = _es.send_email(_db, _db.get(_User, inbox_id), "Local SMTP check", "body")
+            local_status, local_error = local_row.status, local_row.error
+        check("smtp never sends to a local account's unverified address",
+              local_status == "skipped" and "Local account" in local_error, f"{local_status} {local_error}")
+        summary = client.get("/dev/emails/summary", headers=inbox_auth).json()
+        check("...but the email is still readable in their inbox",
+              summary["total"] == 2 and summary["unread_count"] == 1 and "isn't verified" in summary["delivery"],
+              str(summary))
+        with _p.object(settings, "SMTP_SEND_TO_LOCAL_ACCOUNTS", True), SessionLocal() as _db:
+            opted_in = _es.send_email(_db, _db.get(_User, inbox_id), "Opt-in check", "body")
+            check("SMTP_SEND_TO_LOCAL_ACCOUNTS=true sends to local accounts", opted_in.status == "queued", opted_in.status)
+            _wait_status(opted_in.id)
+        with SessionLocal() as _db:
+            _db.execute(text("UPDATE users SET auth_provider = 'google' WHERE id = :id"), {"id": inbox_id})
+            _db.commit()
+            google_row = _es.send_email(_db, _db.get(_User, inbox_id), "Google check", "body")
+            check("google accounts (verified address) are sent over smtp", google_row.status == "queued", google_row.status)
+            _wait_status(google_row.id)
+    check("only the opted-in and google emails reached SMTP", len(smtp_calls) == 2, str(len(smtp_calls)))
+    client.delete(f"/orders/{inbox_order_id}", headers=admin_auth)  # returns the reserved stock
 
     # ---- Admin panel APIs ----
     r = client.get("/admin/analytics", headers=admin_auth)

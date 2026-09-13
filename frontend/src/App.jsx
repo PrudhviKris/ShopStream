@@ -43,6 +43,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [notifRefresh, setNotifRefresh] = useState(0);
   const [live, setLive] = useState(false); // real-time socket connected
+  const [emailUnread, setEmailUnread] = useState(0); // inbox badge
   const [detailProduct, setDetailProduct] = useState(null); // shopping detail modal
   const [formProduct, setFormProduct] = useState(undefined); // undefined=closed, null=create, object=edit
   const [qty, setQty] = useState(1);
@@ -95,6 +96,7 @@ export default function App() {
     api.cart().then(setCart).catch(() => {});
     api.orders().then(setOrders).catch(() => {});
     api.myInvoices().then(setInvoices).catch(() => {});
+    api.inboxSummary().then((s) => setEmailUnread(s.unread_count)).catch(() => {});
   }, [user]);
 
   // ---- real-time events ----
@@ -121,8 +123,11 @@ export default function App() {
         if (ws?.wasReconnect) {
           reloadMine();
           api.cart().then(setCart).catch(() => {});
+          api.inboxSummary().then((s) => setEmailUnread(s.unread_count)).catch(() => {});
         }
         setNotifRefresh((x) => x + 1);
+      } else if (event === "email" || event === "emails_read") {
+        setEmailUnread(data.unread_count);
       } else if (event === "notification") {
         pushToast(data);
         setNotifRefresh((x) => x + 1);
@@ -279,7 +284,7 @@ export default function App() {
       />
 
       <div className="layout">
-        <Sidebar user={user} view={view} onNavigate={setView} />
+        <Sidebar user={user} view={view} onNavigate={setView} badges={{ emails: emailUnread }} />
 
         <main className="main">
           {receiptFor && (
@@ -331,7 +336,7 @@ export default function App() {
 
           {!receiptFor && view === "payments" && <PaymentsPage user={user} orders={orders} notify={notify} />}
           {!receiptFor && view === "invoices" && <InvoicesPage user={user} />}
-          {!receiptFor && view === "emails" && <EmailsPage user={user} notify={notify} />}
+          {!receiptFor && view === "emails" && <EmailsPage user={user} notify={notify} onUnreadChange={setEmailUnread} />}
           {!receiptFor && view === "analytics" && isAdmin(user.role) && <AnalyticsPage onNavigate={setView} />}
           {!receiptFor && view === "users" && isAdmin(user.role) && <UsersPage />}
         </main>

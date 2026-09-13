@@ -77,9 +77,12 @@ tags_metadata = [
      "Every message is `{\"event\", \"data\", \"sent_at\"}` with events `notification`, "
      "`order_status_updated`, `cart_updated`, `notifications_read`, `order_deleted`. "
      "(Swagger can't open WebSockets — use the storefront or a WS client.)"},
-    {"name": "Development Email", "description": "Emails sent to you. Every order confirmation, "
-     "payment success/failure and shipping update is recorded here; with `EMAIL_BACKEND=smtp` it "
-     "is also delivered (SMTP, SendGrid or AWS SES) and `status` shows whether it went out."},
+    {"name": "Development Email", "description": "**Your inbox.** Every order confirmation, "
+     "payment success/failure and shipping update sent to you is kept here — so you can read "
+     "your mail even if your address is made up or no mail server is configured. "
+     "`GET /dev/emails/summary` gives the unread count; `POST /dev/emails/read` marks emails read. "
+     "With `EMAIL_BACKEND=smtp` mail is also delivered (SMTP, SendGrid or AWS SES) to Google "
+     "accounts, and to local accounts only if `SMTP_SEND_TO_LOCAL_ACCOUNTS=true`."},
     {"name": "Admin", "description": "**Admin only.** Store analytics for the dashboard, the user "
      "directory, and the log of every outgoing email."},
 ]

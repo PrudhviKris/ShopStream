@@ -290,7 +290,23 @@ class DevelopmentEmailOut(BaseModel):
     status: str
     error: Optional[str] = None
     sent_at: Optional[datetime] = None
+    is_read: bool = False
     created_at: datetime
+
+
+class EmailReadRequest(BaseModel):
+    email_ids: Optional[List[int]] = Field(
+        default=None, description="Mark these emails read. Omit (or send `all: true`) to mark every one read.",
+        examples=[[4, 5]],
+    )
+    all: bool = Field(default=False, description="Mark every unread email read.")
+
+
+class InboxSummary(BaseModel):
+    address: str
+    total: int
+    unread_count: int
+    delivery: str  # how mail to this address is delivered, in plain words
 
 
 class AdminEmailOut(DevelopmentEmailOut):

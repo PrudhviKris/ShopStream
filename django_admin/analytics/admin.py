@@ -171,13 +171,13 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(Email)
 class EmailAdmin(admin.ModelAdmin):
-    list_display = ("id", "subject", "to_email", "notification_type", "status", "created_at", "sent_at")
-    list_filter = ("status", "notification_type")
+    list_display = ("id", "subject", "to_email", "notification_type", "status", "is_read", "created_at", "sent_at")
+    list_filter = ("status", "is_read", "notification_type")
     search_fields = ("subject", "to_email", "user__name")
     date_hierarchy = "created_at"
     list_select_related = ("user",)
     fields = ("user", "to_email", "from_email", "subject", "notification_type",
-              "status", "error", "created_at", "sent_at", "body", "preview")
+              "status", "error", "is_read", "created_at", "sent_at", "body", "preview")
     readonly_fields = fields
 
     @admin.display(description="HTML preview")

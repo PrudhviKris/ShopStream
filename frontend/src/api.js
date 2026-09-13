@@ -100,7 +100,11 @@ export const api = {
     request("/notifications/read", { method: "POST", body: ids ? { notification_ids: ids } : { all: true } }),
 
   // ---- email ----
-  myEmails: () => request("/dev/emails"),
+  myEmails: (params = {}) => request(`/dev/emails?${new URLSearchParams(params)}`),
+  inboxSummary: () => request("/dev/emails/summary"),
+  // Pass ids to mark just those, nothing to mark every email read.
+  markEmailsRead: (ids) =>
+    request("/dev/emails/read", { method: "POST", body: ids ? { email_ids: ids } : { all: true } }),
 
   // ---- admin panel ----
   analytics: (days = 30) => request(`/admin/analytics?days=${days}`),
