@@ -14,6 +14,7 @@ class StoreUser(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="customer")
     auth_provider = models.CharField(max_length=50, default="local")
     created_at = models.DateTimeField()
+    customer_number = models.IntegerField(null=True, blank=True, unique=True)
 
     class Meta:
         managed = False
@@ -48,6 +49,17 @@ class Order(models.Model):
         ("delivered", "Delivered"), ("cancelled", "Cancelled"),
     ]
 
+    # Mirrors ORDER_TRANSITIONS in fastapi_backend/app/models.py. "paid" is
+    # never a manual move: an order becomes paid by confirming its payment.
+    TRANSITIONS = {
+        "pending": ["cancelled"],
+        "paid": ["shipped", "cancelled"],
+        "shipped": ["delivered", "cancelled"],
+        "delivered": [],
+        "cancelled": [],
+    }
+
+    order_number = models.IntegerField(null=True, blank=True, unique=True)
     user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id")
     subtotal = models.FloatField()
     tax = models.FloatField()
@@ -61,7 +73,10 @@ class Order(models.Model):
         db_table = "orders"
 
     def __str__(self):
-        return f"Order #{self.id} ({self.order_status})"
+        return f"Order #{self.order_number or self.id} ({self.order_status})"
+
+    def can_move_to(self, status):
+        return status in self.TRANSITIONS.get(self.order_status, [])
 
 
 class OrderItem(models.Model):
@@ -123,3 +138,70 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment #{self.id} for order #{self.order_id}"
+
+
+class Notification(models.Model):
+    TYPE_CHOICES = [
+        ("order_placed", "Order placed"),
+        ("order_confirmed", "Order confirmed"),
+        ("payment_successful", "Payment successful"),
+        ("payment_failed", "Payment failed"),
+        ("order_shipped", "Order shipped"),
+        ("order_delivered", "Order delivered"),
+        ("order_cancelled", "Order cancelled"),
+        ("info", "Info"),
+        # written before event types existed
+        ("order", "Order (legacy)"),
+        ("payment", "Payment (legacy)"),
+    ]
+
+    user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id",
+                             related_name="notifications")
+    type = models.CharField(max_length=50, choices=TYPE_CHOICES, default="info")
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True)
+    is_read = models.BooleanField(default=False, verbose_name="read")
+    created_at = models.DateTimeField()
+    order_id = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "notifications"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.title
+
+
+class Email(models.Model):
+    """Every outgoing email (the FastAPI `development_emails` table)."""
+
+    STATUS_CHOICES = [
+        ("stored", "Stored (database inbox)"),
+        ("queued", "Queued for SMTP"),
+        ("sent", "Sent"),
+        ("failed", "Failed"),
+        ("skipped", "Skipped (placeholder address)"),
+    ]
+
+    user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id",
+                             related_name="emails")
+    to_email = models.CharField(max_length=320)
+    from_email = models.CharField(max_length=320)
+    subject = models.CharField(max_length=300)
+    body = models.TextField()
+    html_body = models.TextField(null=True, blank=True)
+    notification_type = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="stored")
+    error = models.TextField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "development_emails"
+        ordering = ["-created_at", "-id"]
+        verbose_name = "email"
+
+    def __str__(self):
+        return self.subject

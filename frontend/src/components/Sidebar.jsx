@@ -1,11 +1,15 @@
 import { roleMeta } from "../roles";
 
+// `roles` limits a link to those roles; omitted means everyone.
 const LINKS = [
   { id: "dashboard", label: "Overview", icon: "🏠" },
   { id: "products", label: "Products", icon: "🗂️" },
   { id: "orders", label: "Orders", icon: "📦" },
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "invoices", label: "Invoices", icon: "🧾" },
+  { id: "emails", label: "Emails", icon: "✉️" },
+  { id: "analytics", label: "Analytics", icon: "📈", roles: ["admin"], section: "Admin panel" },
+  { id: "users", label: "Users", icon: "👥", roles: ["admin"] },
 ];
 
 export default function Sidebar({ user, view, onNavigate }) {
@@ -20,10 +24,13 @@ export default function Sidebar({ user, view, onNavigate }) {
         </div>
       </div>
       <div className="side-links">
-        {LINKS.map((l) => (
-          <button key={l.id} className={view === l.id ? "active" : ""} onClick={() => onNavigate(l.id)}>
-            <span>{l.icon}</span> {l.label}
-          </button>
+        {LINKS.filter((l) => !l.roles || l.roles.includes(user.role)).map((l) => (
+          <div key={l.id} className="side-link-group">
+            {l.section && <small className="side-section">{l.section}</small>}
+            <button className={view === l.id ? "active" : ""} onClick={() => onNavigate(l.id)}>
+              <span>{l.icon}</span> {l.label}
+            </button>
+          </div>
         ))}
       </div>
       <div className="side-footer">

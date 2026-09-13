@@ -1,0 +1,229 @@
+{% extends "admin/base_site.html" %}
+{% load store_extras %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  /* Chart tokens: one validated accent per theme; text stays in the admin's ink. */
+  .an { --mark: #2a78d6; --grid: #e1e0d9; --axis: #898781; --tip-bg: #0b0b0b; --tip-fg: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .an { --mark: #3987e5; --grid: #2c2c2a; --tip-bg: #f5f5f5; --tip-fg: #0b0b0b; }
+  }
+  :root[data-theme="dark"] .an { --mark: #3987e5; --grid: #2c2c2a; --tip-bg: #f5f5f5; --tip-fg: #0b0b0b; }
+
+  .an { max-width: 1200px; }
+  .an-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+  .an-head p { margin: 4px 0 0; color: var(--body-quiet-color); }
+  .an-ranges a { display: inline-block; padding: 6px 12px; border: 1px solid var(--hairline-color); border-radius: 999px; margin-left: 6px; font-size: 13px; }
+  .an-ranges a.on { background: var(--mark); border-color: var(--mark); color: #fff; }
+  .an-card { background: var(--body-bg); border: 1px solid var(--hairline-color); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .an-card h2 { background: none; color: var(--body-fg); padding: 0; margin: 0 0 4px; font-size: 15px; text-transform: none; letter-spacing: 0; }
+  .an-card .quiet { color: var(--body-quiet-color); font-size: 12px; margin: 0 0 12px; }
+  .an-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+  .an-label { display: block; color: var(--body-quiet-color); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .an-figure { display: block; font-size: 48px; font-weight: 700; line-height: 1.1; margin: 6px 0 4px; color: var(--body-fg); }
+  .an-side { display: flex; gap: 28px; flex-wrap: wrap; }
+  .an-side b { display: block; font-size: 19px; margin-top: 4px; color: var(--body-fg); }
+  .an-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .an-tile { border: 1px solid var(--hairline-color); border-radius: 10px; padding: 14px 16px; background: var(--body-bg); color: var(--body-fg); display: block; }
+  a.an-tile:hover { border-color: var(--mark); }
+  .an-tile b { display: block; font-size: 26px; margin: 6px 0 2px; color: var(--body-fg); }
+  .an-tile small { color: var(--body-quiet-color); }
+  .an-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .an-grid .an-card { margin-bottom: 0; }
+  .an-grid + .an-grid, .an-grid + .an-card { margin-top: 16px; }
+  @media (max-width: 1000px) { .an-tiles { grid-template-columns: 1fr 1fr; } .an-grid { grid-template-columns: 1fr; } }
+
+  .an-trend { position: relative; }
+  .an-trend svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .an-grid-line { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+  .an-axis { fill: var(--axis); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .an-line { fill: none; stroke: var(--mark); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .an-area { fill: var(--mark); opacity: .1; }
+  .an-cross { stroke: var(--axis); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .an-dot { fill: var(--mark); stroke: var(--body-bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .an-tip { position: absolute; top: 6px; pointer-events: none; background: var(--tip-bg); color: var(--tip-fg); border-radius: 8px; padding: 6px 10px; white-space: nowrap; font-size: 12px; }
+  .an-tip strong { display: block; font-size: 14px; }
+
+  .an-bars { display: grid; gap: 2px; }
+  .an-bar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; align-items: center; gap: 12px; padding: 5px 6px; border-radius: 6px; position: relative; }
+  .an-bar:hover, .an-bar:focus { background: var(--darkened-bg); outline: none; }
+  .an-bar-label { text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--body-fg); }
+  .an-bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .an-bar-fill { height: 14px; max-width: calc(100% - 70px); background: var(--mark); border-radius: 0 4px 4px 0; flex: none; }
+  .an-bar-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--body-fg); }
+  .an-bar .an-tip { display: none; left: 50%; top: auto; bottom: calc(100% + 2px); transform: translateX(-50%); z-index: 2; }
+  .an-bar:hover .an-tip, .an-bar:focus .an-tip { display: block; }
+  .an-empty { color: var(--body-quiet-color); padding: 12px 0; }
+
+  .an table { width: 100%; }
+  .an td.num, .an th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .an details summary { cursor: pointer; color: var(--link-fg); margin-top: 10px; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; Store analytics</div>
+{% endblock %}
+
+{% block content %}
+<div class="an">
+  <div class="an-head">
+    <div>
+      <h1>Store analytics</h1>
+      <p>Generated {{ stats.generated_at }} (UTC). Raw numbers: <a href="{% url 'analytics-data' %}?days={{ days }}">JSON</a>.</p>
+    </div>
+    <nav class="an-ranges" aria-label="Date range">
+      {% for d in ranges %}<a href="?days={{ d }}" class="{% if d == days %}on{% endif %}">Last {{ d }} days</a>{% endfor %}
+    </nav>
+  </div>
+
+  <section class="an-card an-hero">
+    <div>
+      <span class="an-label">Revenue · last {{ days }} days</span>
+      <strong class="an-figure">{{ stats.window_revenue|inr:0 }}</strong>
+      <span style="color:var(--body-quiet-color)">{{ stats.total_revenue|inr:0 }} all time from {{ stats.paid_orders }} paid order{{ stats.paid_orders|pluralize }}</span>
+    </div>
+    <div class="an-side">
+      <div><span class="an-label">Average order</span><b>{{ stats.average_order_value|inr:0 }}</b></div>
+      <div><span class="an-label">Orders</span><b>{{ stats.total_orders }}</b></div>
+      <div><span class="an-label">Accounts</span><b>{{ stats.total_users }}</b></div>
+    </div>
+  </section>
+
+  <div class="an-tiles">
+    <a class="an-tile" href="{% url 'admin:analytics_order_changelist' %}?order_status__exact=pending">
+      <span class="an-label">Pending payment</span><b>{{ stats.pending_orders }}</b><small>Orders not yet paid</small></a>
+    <a class="an-tile" href="{% url 'admin:analytics_order_changelist' %}?order_status__exact=paid">
+      <span class="an-label">Awaiting shipment</span><b>{{ stats.awaiting_shipment }}</b><small>Paid, not shipped</small></a>
+    <a class="an-tile" href="{% url 'admin:analytics_product_changelist' %}">
+      <span class="an-label">Low / out of stock</span><b>{{ stats.low_stock }} / {{ stats.out_of_stock }}</b><small>of {{ stats.total_products }} products</small></a>
+    <a class="an-tile" href="{% url 'admin:analytics_notification_changelist' %}?is_read__exact=0">
+      <span class="an-label">Unread notifications</span><b>{{ stats.notifications.unread }}</b><small>{{ stats.notifications.total }} sent in total</small></a>
+  </div>
+
+  <section class="an-card">
+    <h2>Revenue by day</h2>
+    <p class="quiet">Settled payments, by the day they cleared (UTC). Hover or use the arrow keys to read a day.</p>
+    <div class="an-trend" id="an-trend">
+      <svg viewBox="0 0 {{ stats.chart.width }} {{ stats.chart.height }}" role="img" tabindex="0"
+           aria-label="Revenue by day for the last {{ days }} days — values are in the table below">
+        {% for t in stats.chart.ticks %}
+          <line class="an-grid-line" x1="{{ stats.chart.left }}" x2="{{ stats.chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+          <text class="an-axis" x="{{ stats.chart.left|add:'-10' }}" y="{{ t.y }}" dy="0.32em" text-anchor="end">{{ t.value|inr_compact }}</text>
+        {% endfor %}
+        {% for l in stats.chart.x_labels %}
+          <text class="an-axis" x="{{ l.x }}" y="{{ stats.chart.height|add:'-6' }}" text-anchor="{{ l.anchor }}">{{ l.date }}</text>
+        {% endfor %}
+        <path class="an-area" d="{{ stats.chart.area }}"/>
+        <path class="an-line" d="{{ stats.chart.line }}"/>
+        <line class="an-cross" id="an-cross" y1="{{ stats.chart.top }}" y2="{{ stats.chart.baseline }}" visibility="hidden"/>
+        <circle class="an-dot" id="an-dot" r="5" visibility="hidden"/>
+      </svg>
+      <div class="an-tip" id="an-tip" hidden><strong></strong><span></span></div>
+    </div>
+    <details>
+      <summary>Show as table</summary>
+      <table>
+        <thead><tr><th>Date</th><th class="num">Orders placed</th><th class="num">Revenue</th></tr></thead>
+        <tbody>{% for t in stats.trend reversed %}<tr><td>{{ t.date }}</td><td class="num">{{ t.orders }}</td><td class="num">{{ t.revenue|inr }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </details>
+  </section>
+
+  <div class="an-grid">
+    {% include "analytics/_bars.html" with title="Orders by status" bars=stats.status_bars money=False empty="No orders yet." %}
+    {% include "analytics/_bars.html" with title="Sales by category" note="Excludes cancelled orders" bars=stats.category_bars money=True empty="No sales yet." %}
+  </div>
+  <div class="an-grid">
+    {% include "analytics/_bars.html" with title="Revenue by payment method" bars=stats.method_bars money=True empty="No settled payments yet." %}
+    {% include "analytics/_bars.html" with title="Email delivery" note="stored = database inbox · sent/failed = SMTP" bars=stats.email_bars money=False empty="No emails sent yet." %}
+  </div>
+
+  <div class="an-grid">
+    <section class="an-card">
+      <h2>Top sellers</h2>
+      <p class="quiet">Units sold, excluding cancelled orders</p>
+      <table>
+        <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
+        <tbody>
+          {% for p in stats.top_sellers %}<tr><td><a href="{% url 'admin:analytics_product_change' p.product_id %}">{{ p.name }}</a></td><td class="num">{{ p.units_sold }}</td><td class="num">{{ p.revenue|inr }}</td></tr>
+          {% empty %}<tr><td colspan="3" class="an-empty">No sales yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </section>
+    <section class="an-card">
+      <h2>Restock soon</h2>
+      <p class="quiet">5 units or fewer</p>
+      <table>
+        <thead><tr><th>Product</th><th>Category</th><th class="num">Stock</th></tr></thead>
+        <tbody>
+          {% for p in stats.low_stock_products %}<tr><td><a href="{% url 'admin:analytics_product_change' p.id %}">{{ p.name }}</a></td><td>{{ p.category }}</td><td class="num">{% if p.stock <= 0 %}⛔ Out{% else %}⚠ {{ p.stock }} left{% endif %}</td></tr>
+          {% empty %}<tr><td colspan="3" class="an-empty">Everything is well stocked.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <section class="an-card" style="margin-top:16px">
+    <h2>Recent orders</h2>
+    <table>
+      <thead><tr><th>Order</th><th>Customer</th><th class="num">Total</th><th>Payment</th><th>Status</th><th>Placed (UTC)</th></tr></thead>
+      <tbody>
+        {% for o in stats.recent_orders %}<tr>
+          <td><a href="{% url 'admin:analytics_order_change' o.id %}">#{{ o.order_number|default:o.id }}</a></td>
+          <td>{{ o.customer }}</td><td class="num">{{ o.total|inr }}</td>
+          <td>{{ o.payment_status }}</td><td>{{ o.order_status }}</td><td>{{ o.created_at|date:"Y-m-d H:i" }}</td>
+        </tr>{% empty %}<tr><td colspan="6" class="an-empty">No orders yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+{{ stats.chart.points|json_script:"an-points" }}
+<script>
+(function () {
+  const points = JSON.parse(document.getElementById("an-points").textContent);
+  const wrap = document.getElementById("an-trend");
+  const svg = wrap.querySelector("svg");
+  const cross = document.getElementById("an-cross");
+  const dot = document.getElementById("an-dot");
+  const tip = document.getElementById("an-tip");
+  const W = {{ stats.chart.width }};
+  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+  let active = null;
+
+  function show(i) {
+    if (i == null || !points.length) {
+      active = null; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.hidden = true; return;
+    }
+    active = Math.max(0, Math.min(points.length - 1, i));
+    const p = points[active];
+    cross.setAttribute("x1", p.x); cross.setAttribute("x2", p.x); cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("visibility", "visible");
+    tip.querySelector("strong").textContent = inr.format(p.revenue);
+    tip.querySelector("span").textContent = `${p.date} · ${p.orders} order${p.orders === 1 ? "" : "s"}`;
+    tip.hidden = false;
+    const px = (p.x / W) * svg.getBoundingClientRect().width;
+    const flip = px > wrap.clientWidth - 190;
+    tip.style.left = `${px + (flip ? -12 : 12)}px`;
+    tip.style.transform = flip ? "translateX(-100%)" : "none";
+  }
+  svg.addEventListener("pointermove", (e) => {
+    const box = svg.getBoundingClientRect();
+    const x = ((e.clientX - box.left) / box.width) * W;
+    let best = 0;
+    points.forEach((p, i) => { if (Math.abs(p.x - x) < Math.abs(points[best].x - x)) best = i; });
+    show(best);
+  });
+  svg.addEventListener("pointerleave", () => show(null));
+  svg.addEventListener("blur", () => show(null));
+  svg.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") show(active == null ? 0 : active + 1);
+    else if (e.key === "ArrowLeft") show(active == null ? points.length - 1 : active - 1);
+    else if (e.key === "Escape") show(null);
+    else return;
+    e.preventDefault();
+  });
+})();
+</script>
+{% endblock %}

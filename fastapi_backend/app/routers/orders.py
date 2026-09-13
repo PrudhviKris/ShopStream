@@ -16,7 +16,8 @@ from ..models import (
     UserRole,
 )
 from ..schemas import AdminOrderOut, OrderOut, OrderStatusUpdate
-from ..services.notification_service import notify
+from ..services import order_events
+from ..services.notification_service import publish
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -79,6 +80,7 @@ def delete_order(
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    owner_id, order_number = order.user_id, order.order_number
     if order.order_status not in (OrderStatus.shipped, OrderStatus.delivered):
         for item in order.items:
             product = db.get(Product, item.product_id)
@@ -90,6 +92,11 @@ def delete_order(
     db.query(Payment).filter(Payment.order_id == order.id).delete()
     db.delete(order)  # order_items cascade
     db.commit()
+
+    publish(
+        [owner_id], "order_deleted", {"order_id": order_id, "order_number": order_number},
+        include_staff=True,
+    )
 
 
 @router.get("/{order_id}/status-options", tags=["Orders"])
@@ -183,15 +190,12 @@ def update_order_status(
                    if order.order_status == OrderStatus.pending else "")
             ),
         )
+    previous = order.order_status.value
     order.order_status = new_status
     db.commit()
     db.refresh(order)
 
-    notify(
-        db,
-        order.user_id,
-        "order",
-        f"Order #{order.id} {new_status.value}",
-        f"Your order #{order.id} status changed to '{new_status.value}'.",
-    )
+    # Notification + shipping-update email to the customer, and a live
+    # order_status_updated push to them and every staff/admin.
+    order_events.order_status_changed(db, order, previous_status=previous)
     return order

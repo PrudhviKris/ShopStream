@@ -1,30 +1,37 @@
+from django.contrib import admin
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db.models import Count, Sum
 from django.http import JsonResponse
+from django.shortcuts import render
 
-from .models import Order, Payment, Product, StoreUser
+from .stats import store_stats, with_chart_geometry
+
+RANGES = (7, 30, 90)
+
+
+def _days(request):
+    try:
+        days = int(request.GET.get("days", 30))
+    except ValueError:
+        days = 30
+    return days if days in RANGES else 30
 
 
 @staff_member_required
 def dashboard(request):
-    """Store-wide analytics summary (JSON). Visit /analytics/ while logged into /admin/."""
-    revenue = (
-        Payment.objects.filter(status="succeeded").aggregate(total=Sum("amount"))["total"] or 0
-    )
-    orders_by_status = dict(
-        Order.objects.values_list("order_status").annotate(count=Count("id"))
-    )
-    top_products = list(
-        Product.objects.order_by("-popularity").values("name", "popularity", "stock")[:5]
-    )
-    return JsonResponse(
-        {
-            "total_users": StoreUser.objects.count(),
-            "total_products": Product.objects.count(),
-            "out_of_stock": Product.objects.filter(stock=0).count(),
-            "total_orders": Order.objects.count(),
-            "orders_by_status": orders_by_status,
-            "total_revenue": round(revenue, 2),
-            "top_products": top_products,
-        }
-    )
+    """Analytics dashboard, rendered inside the admin's own chrome.
+    Visit /analytics/ while logged into /admin/."""
+    days = _days(request)
+    context = {
+        **admin.site.each_context(request),
+        "title": "Store analytics",
+        "stats": with_chart_geometry(store_stats(days)),
+        "days": days,
+        "ranges": RANGES,
+    }
+    return render(request, "analytics/dashboard.html", context)
+
+
+@staff_member_required
+def dashboard_data(request):
+    """The same numbers as JSON: /analytics/data/?days=30"""
+    return JsonResponse(store_stats(_days(request)))

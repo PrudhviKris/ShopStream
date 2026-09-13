@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { roleMeta } from "../roles";
+import { notificationIcon } from "../live";
 
 function timeAgo(iso) {
   const secs = Math.max(1, Math.floor((Date.now() - new Date(iso + "Z")) / 1000));
@@ -10,9 +11,7 @@ function timeAgo(iso) {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
-const NOTIF_ICONS = { order: "📦", payment: "💳", info: "🔔" };
-
-export default function Topbar({ user, cartCount, onOpenCart, onNavigate, onSearch, onLogout, notifRefresh }) {
+export default function Topbar({ user, cartCount, onOpenCart, onNavigate, onSearch, onLogout, notifRefresh, live }) {
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
@@ -34,8 +33,19 @@ export default function Topbar({ user, cartCount, onOpenCart, onNavigate, onSear
   const meta = user ? roleMeta(user.role) : null;
 
   async function markAll() {
-    await api.markAllNotificationsRead();
-    setNotifs((ns) => ns.map((n) => ({ ...n, is_read: true })));
+    setNotifs((ns) => ns.map((n) => ({ ...n, is_read: true, read_status: true })));
+    await api.markNotificationsRead().catch(() => {});
+  }
+
+  async function openNotification(n) {
+    if (!n.is_read) {
+      setNotifs((ns) => ns.map((x) => (x.id === n.id ? { ...x, is_read: true, read_status: true } : x)));
+      api.markNotificationsRead([n.id]).catch(() => {});
+    }
+    if (n.order_id) {
+      setOpen(false);
+      onNavigate("orders");
+    }
   }
 
   return (
@@ -69,19 +79,29 @@ export default function Topbar({ user, cartCount, onOpenCart, onNavigate, onSear
             {open && (
               <div className="dropdown">
                 <div className="dropdown-head">
-                  Notifications
+                  <span className="dropdown-title">
+                    Notifications
+                    <span className={`live-pill ${live ? "on" : ""}`}>
+                      <span className="live-dot" />{live ? "Live" : "Reconnecting…"}
+                    </span>
+                  </span>
                   {unread > 0 && <button onClick={markAll}>Mark all read</button>}
                 </div>
                 {notifs.length === 0 && <div className="notif"><div className="m">No notifications yet.</div></div>}
                 {notifs.map((n) => (
-                  <div key={n.id} className={`notif ${n.is_read ? "" : "unread"}`}>
-                    <span>{NOTIF_ICONS[n.type] || "🔔"}</span>
+                  <button
+                    key={n.id}
+                    className={`notif ${n.is_read ? "" : "unread"}`}
+                    onClick={() => openNotification(n)}
+                    title={n.order_id ? "Open orders" : "Mark as read"}
+                  >
+                    <span>{notificationIcon(n.type)}</span>
                     <div>
                       <div className="t">{n.title}</div>
                       <div className="m">{n.message}</div>
                       <div className="d">{timeAgo(n.created_at)}</div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

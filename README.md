@@ -71,8 +71,12 @@ python manage.py createsuperuser
 python manage.py runserver 8001
 ```
 
-- Admin panel: http://localhost:8001/admin/ (manage users, products, orders, payments)
-- Analytics JSON: http://localhost:8001/analytics/ (revenue, orders by status, top products)
+- Admin panel: http://localhost:8001/admin/ — users, products, orders (ship / deliver /
+  cancel actions that enforce the allowed transitions), payments, invoices, notifications
+  (mark read/unread) and the email log (with a sandboxed HTML preview)
+- Analytics dashboard: http://localhost:8001/analytics/ — revenue trend, orders by status,
+  sales by category and payment method, top sellers, low stock, recent orders, email
+  delivery; `?days=7|30|90`. Same numbers as JSON at http://localhost:8001/analytics/data/
 
 The store models are `managed = False` — Django reads/writes the tables owned by
 the FastAPI service in the same MySQL database (credentials come from
@@ -133,9 +137,46 @@ order, reserves stock, clears the cart, and creates a Stripe Checkout Session
 in **mock mode**: checkout works end-to-end and `POST /payments/mock/confirm/{order_id}`
 simulates the webhook.
 
-**Notifications & real-time** — every order/payment/status event persists a notification and
-pushes it live over `ws://localhost:8000/ws/notifications?token=<access_token>`.
-REST: `GET /notifications`, `PUT /notifications/{id}/read`, `PUT /notifications/read-all`.
+**Notifications** — each order event stores a notification (`id`, `user`, `type`, `message`,
+`read_status`, `timestamp`) with one of these types: `order_placed`, `order_confirmed`
+(cash on delivery), `payment_successful`, `payment_failed`, `order_shipped`,
+`order_delivered`, `order_cancelled`. All of it goes through
+`app/services/order_events.py`, so the notification, the email and the live update always
+go out together.
+
+| Endpoint | |
+|---|---|
+| `GET /notifications` | newest first; `?unread_only=true`, `?type=order_shipped`, `?limit=` |
+| `POST /notifications/read` | `{"notification_ids": [1, 2]}` for those, or `{"all": true}` |
+| `GET /notifications/unread-count` | badge count |
+
+**Email notifications** — order confirmation, payment success/failure and shipping updates
+(shipped / delivered / cancelled), as text + HTML with INR amounts. Every email is logged in
+`development_emails` with a delivery `status`. `EMAIL_BACKEND` in `.env` decides delivery:
+
+- `database` (default): stored only, readable in the storefront's **Emails** page and at
+  `GET /dev/emails`. No mail server needed.
+- `smtp`: sent through `SMTP_*`, on a background worker, so a slow mail server never
+  blocks checkout. Failures are recorded (`status=failed`, `error`) and admins can retry
+  them (`POST /admin/emails/{id}/retry`). SendGrid and AWS SES are SMTP relays, so they
+  plug in here too; see the comments in `app/config.py` for their host/port/credentials.
+  Placeholder addresses (Facebook accounts without an email) are skipped.
+
+**Real-time (WebSockets)** — connect to
+`ws://localhost:8000/ws/notifications?token=<access_token>`. Every message is
+`{"event", "data", "sent_at"}`:
+
+| event | when | who receives it |
+|---|---|---|
+| `order_status_updated` | order placed, paid, payment failed, shipped, delivered, cancelled | the order's customer + every connected staff/admin |
+| `cart_updated` | item added / updated / removed, cart cleared at checkout (full cart in `data`) | that user (all their tabs) |
+| `notification` | a notification was stored | its user |
+| `notifications_read` | notifications marked read | that user (keeps badges in sync) |
+| `order_deleted` | an admin deleted an order | the customer + staff/admin |
+| `connected` / `pong` | on connect / reply to a `ping` text frame | that socket |
+
+The storefront keeps one socket per session, reconnects with backoff, and refreshes the
+order lists, admin tables and analytics live.
 
 **Order lifecycle** — pending → paid → shipped → delivered (or cancelled), invalid
 transitions rejected; staff/admin update statuses, customers get notified in real time.
@@ -148,7 +189,18 @@ with customer identity (`GET /orders/all`).
 **Admin panel (frontend)** — staff/admin get a ⚙️ Store management view: inline product
 editing (rename, category, price, stock, photo URL), create and delete products, and
 order-status management; admins additionally get Payments and Invoices tabs across all
-customers. The Django admin at port 8001 mirrors this over the same MySQL database.
+customers, plus:
+
+- **Analytics**: revenue for the last 7/30/90 days with a daily trend (chart or table),
+  pending / awaiting-shipment / stock alerts, orders by status, sales by category and payment
+  method, top products, restock list, recent orders, accounts by role, email delivery.
+  Updates live as orders change. API: `GET /admin/analytics?days=30`.
+- **Users**: every account with order count and lifetime spend, with search and a role
+  filter (`GET /admin/users`). Read-only on purpose: roles are changed in MySQL.
+- **Emails**: everyone sees their own inbox; admins also get the full log with a delivery
+  status filter and retry (`GET /admin/emails`).
+
+The Django admin at port 8001 covers the same data over the same MySQL database.
 
 ## Social login setup (Google / Facebook)
 
@@ -204,8 +256,10 @@ origins stable.
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
-- `fastapi_backend/smoke_test.py` — 90 end-to-end checks (auth, role promotion via direct
-  MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, WebSocket
-  push) against the configured database: `python smoke_test.py`. It registers its own
+- `fastapi_backend/smoke_test.py` — 190 end-to-end checks (auth, role promotion via direct
+  MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, notification
+  types and `POST /notifications/read`, WebSocket `order_status_updated` / `cart_updated`
+  events, emails on both backends including SMTP failure and retry, admin analytics/users/
+  email APIs) against the configured database: `python smoke_test.py`. It registers its own
   throwaway users and deletes them again when it finishes, so it never leaves demo data
   behind.

@@ -19,6 +19,9 @@ import uuid
 # the suite must not create real Stripe sessions. Set BEFORE importing the app.
 os.environ["STRIPE_SECRET_KEY"] = ""
 os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+# Keep email in the database inbox: the suite must never send real mail either.
+os.environ["EMAIL_BACKEND"] = "database"
+os.environ["EMAIL_ENABLED"] = "true"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -55,6 +58,18 @@ def register(email, name, password="SmokePass123!"):
     check(f"{name} was assigned a gapless customer_number",
           isinstance(me.get("customer_number"), int) and me["customer_number"] > 0, str(me))
     return tokens, auth, me["id"]
+
+
+def receive_until(ws, predicate, limit=8):
+    """Read WebSocket messages until one matches; returns (match, everything seen).
+    Several events can arrive for one action, in no guaranteed order."""
+    seen = []
+    for _ in range(limit):
+        msg = ws.receive_json()
+        seen.append(msg)
+        if predicate(msg):
+            return msg, seen
+    return None, seen
 
 
 def set_role_in_mysql(user_id: int, role: str) -> None:
@@ -103,6 +118,7 @@ def cleanup(user_ids):
         db.execute(text(f"DELETE FROM orders WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM cart_items WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM notifications WHERE user_id IN ({placeholders})"))
+        db.execute(text(f"DELETE FROM development_emails WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM refresh_tokens WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM users WHERE id IN ({placeholders})"))
         db.commit()
@@ -236,6 +252,26 @@ try:
     check("cart update quantity", item["quantity"] == 3)
     expected_total = round(sum(i["item_total"] for i in cart["items"]), 2)
     check("cart totals", cart["cart_total"] == expected_total and cart["grand_total"] == round(cart["cart_total"] + cart["tax"], 2))
+
+    # ---- Real-time cart_updated: another tab sees the change without polling ----
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+        hello = ws.receive_json()
+        check("websocket greets with a connected event carrying role and unread count",
+              hello["event"] == "connected" and hello["data"]["role"] == "customer"
+              and "unread_count" in hello["data"], str(hello))
+        ws.send_text("ping")
+        check("websocket answers ping with pong", ws.receive_json()["event"] == "pong")
+        r = client.put("/cart/update", json={"product_id": 5, "quantity": 2}, headers=auth)
+        msg, seen = receive_until(ws, lambda m: m["event"] == "cart_updated")
+        check("cart_updated pushed over websocket with the full new cart",
+              msg is not None and msg["data"]["reason"] == "updated"
+              and msg["data"]["grand_total"] == r.json()["grand_total"]
+              and any(i["product_id"] == 5 and i["quantity"] == 2 for i in msg["data"]["items"]), str(seen))
+        client.put("/cart/update", json={"product_id": 5, "quantity": 1}, headers=auth)
+        msg, seen = receive_until(ws, lambda m: m["event"] == "cart_updated")
+        check("every cart change pushes an event (update back to 1)",
+              msg is not None and any(i["product_id"] == 5 and i["quantity"] == 1 for i in msg["data"]["items"]),
+              str(seen))
     r = client.post("/cart/add", json={"product_id": 10, "quantity": 1}, headers=auth)
     check("stock validation on add", r.status_code == 400, r.text)  # product 10 seeded with stock 0
 
@@ -263,15 +299,28 @@ try:
           client.post("/payments/confirm/999999", headers=admin_auth).status_code == 404)
 
     # ---- Real-time notifications over WebSocket + payment confirmation ----
-    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+    customer_ws = client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}")
+    staff_ws_ctx = client.websocket_connect(f"/ws/notifications?token={staff_tokens['access_token']}")
+    with customer_ws as ws, staff_ws_ctx as staff_ws:
+        ws.receive_json()
+        staff_ws.receive_json()  # connected greetings
         r = client.post(f"/payments/confirm/{order_id}", headers=staff_auth)
         check("staff confirms payment by order id (works with live Stripe keys too)",
               r.status_code == 200 and r.json()["status"] == "succeeded", r.text)
-        # Two pushes arrive: the auto-issued invoice, then the payment confirmation.
-        msgs = [ws.receive_json(), ws.receive_json()]
-        check("websocket invoice push received", any("Invoice INV-" in m["title"] for m in msgs), str(msgs))
-        check("websocket payment push received",
-              any(m["type"] == "payment" and "succeeded" in m["message"] for m in msgs), str(msgs))
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("websocket payment_successful notification pushed to the customer",
+              note is not None and note["data"]["type"] == "payment_successful"
+              and "Invoice INV-" in note["data"]["message"] and note["data"]["order_id"] == order_id
+              and note["data"]["read_status"] is False and note["data"]["timestamp"], str(seen))
+        update, seen = receive_until(ws, lambda m: m["event"] == "order_status_updated")
+        check("websocket order_status_updated pushed to the customer (pending -> paid)",
+              update is not None and update["data"]["order_id"] == order_id
+              and update["data"]["previous_status"] == "pending"
+              and update["data"]["order_status"] == "paid"
+              and update["data"]["payment_status"] == "succeeded", str(seen))
+        staff_update, seen = receive_until(staff_ws, lambda m: m["event"] == "order_status_updated")
+        check("staff also receive order_status_updated for a customer's order",
+              staff_update is not None and staff_update["data"]["order_id"] == order_id, str(seen))
 
     r = client.get(f"/orders/{order_id}", headers=auth)
     check("order marked paid", r.json()["order_status"] == "paid" and r.json()["payment_status"] == "succeeded")
@@ -374,8 +423,18 @@ try:
 
     # ---- Order status flow (staff/admin) — the transitions the status box offers ----
     check("customer cannot update status", client.put(f"/orders/{order_id}/status?status=shipped", headers=auth).status_code == 403)
-    r = client.put(f"/orders/{order_id}/status?status=shipped", headers=admin_auth)
-    check("paid -> shipped", r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+        ws.receive_json()  # connected
+        r = client.put(f"/orders/{order_id}/status?status=shipped", headers=admin_auth)
+        check("paid -> shipped", r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("order_shipped notification pushed live",
+              note is not None and note["data"]["type"] == "order_shipped", str(seen))
+        update, seen = receive_until(ws, lambda m: m["event"] == "order_status_updated")
+        check("order_status_updated pushed live (paid -> shipped)",
+              update is not None and update["data"]["previous_status"] == "paid"
+              and update["data"]["order_status"] == "shipped"
+              and update["data"]["allowed_next_statuses"] == ["delivered", "cancelled"], str(seen))
     check("invalid transition rejected", client.put(f"/orders/{order_id}/status?status=paid", headers=admin_auth).status_code == 400)
     # shipped can now also be cancelled (previously only delivered was allowed)
     r = client.put(f"/orders/{fallback_order_id}/status", json={"status": "shipped"}, headers=staff_auth)
@@ -407,11 +466,156 @@ try:
     # ---- Notifications API ----
     r = client.get("/notifications", headers=auth)
     notifs = r.json()
-    check("notifications persisted", len(notifs) >= 3, str(len(notifs)))  # order placed, payment, shipped
-    r = client.put(f"/notifications/{notifs[0]['id']}/read", headers=auth)
-    check("mark notification read", r.status_code == 200 and r.json()["is_read"] is True)
-    r = client.put("/notifications/read-all", headers=auth)
-    check("mark all read", r.status_code == 200)
+    types = {n["type"] for n in notifs}
+    check("notifications persisted for each order event",
+          {"order_placed", "order_confirmed", "payment_successful", "order_shipped", "order_cancelled"} <= types,
+          str(types))
+    first = notifs[0]
+    check("notification exposes id/type/message/read_status/timestamp",
+          {"id", "type", "message", "read_status", "timestamp"} <= first.keys()
+          and first["read_status"] == first["is_read"] and first["timestamp"] == first["created_at"], str(first))
+    r = client.get("/notifications", params={"type": "order_shipped"}, headers=auth)
+    check("filter notifications by type", r.status_code == 200 and len(r.json()) >= 1
+          and all(n["type"] == "order_shipped" for n in r.json()), r.text)
+    check("unknown notification type is a 422, not an empty list",
+          client.get("/notifications", params={"type": "bogus"}, headers=auth).status_code == 422)
+    unread_before = client.get("/notifications/unread-count", headers=auth).json()["unread_count"]
+    check("unread count reflects unread notifications",
+          unread_before == sum(not n["is_read"] for n in notifs), str(unread_before))
+
+    r = client.post("/notifications/read", json={"notification_ids": []}, headers=auth)
+    check("POST /notifications/read with an empty id list marks nothing",
+          r.status_code == 200 and r.json()["marked_read"] == 0, r.text)
+    staff_notif_ids = [n["id"] for n in client.get("/notifications", headers=staff_auth).json()]
+    if staff_notif_ids:
+        r = client.post("/notifications/read", json={"notification_ids": staff_notif_ids}, headers=auth)
+        check("a user cannot mark someone else's notifications read", r.json()["marked_read"] == 0, r.text)
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+        ws.receive_json()
+        r = client.post("/notifications/read", json={"notification_ids": [first["id"]]}, headers=auth)
+        check("POST /notifications/read marks the given ids",
+              r.status_code == 200 and r.json()["marked_read"] == 1
+              and r.json()["unread_count"] == unread_before - 1, r.text)
+        msg, seen = receive_until(ws, lambda m: m["event"] == "notifications_read")
+        check("notifications_read pushed so other tabs update their badge",
+              msg is not None and msg["data"]["notification_ids"] == [first["id"]], str(seen))
+    marked = next(n for n in client.get("/notifications", headers=auth).json() if n["id"] == first["id"])
+    check("marked notification now reads as read", marked["read_status"] is True)
+    r = client.post("/notifications/read", json={"all": True}, headers=auth)
+    check("POST /notifications/read {all: true} marks every one read",
+          r.status_code == 200 and r.json()["unread_count"] == 0, r.text)
+    check("unread_only now empty", client.get("/notifications?unread_only=true", headers=auth).json() == [])
+    check("deprecated PUT /notifications/read-all still works",
+          client.put("/notifications/read-all", headers=auth).status_code == 200)
+
+    # ---- Email notifications (EMAIL_BACKEND=database in tests) ----
+    emails = client.get("/dev/emails", headers=auth).json()
+    subjects = [e["subject"] for e in emails]
+    check("order confirmation email recorded",
+          any(x.startswith("Order confirmation") for x in subjects), str(subjects))
+    check("payment success email recorded",
+          any(x.startswith("Payment successful") for x in subjects), str(subjects))
+    check("shipping update emails recorded (shipped + cancelled)",
+          sum(x.startswith("Shipping update") for x in subjects) >= 2, str(subjects))
+    shipped_mail = next(e for e in emails if e["notification_type"] == "order_shipped")
+    check("emails go to the customer, in text + HTML, stored by the database backend",
+          shipped_mail["to_email"] == CUSTOMER_EMAIL and shipped_mail["status"] == "stored"
+          and "Smoke Customer" in shipped_mail["body"] and "<table" in shipped_mail["html_body"],
+          str(shipped_mail)[:300])
+    paid_mail = next(e for e in emails if e["notification_type"] == "payment_successful")
+    check("amounts in emails are formatted in rupees", "\u20b9" in paid_mail["body"], paid_mail["body"][:300])
+    check("a user's emails are private",
+          client.get(f"/dev/emails/{shipped_mail['id']}", headers=other_auth).status_code == 404)
+    check("unknown email id is a 404 (not a 500)",
+          client.get("/dev/emails/999999999", headers=auth).status_code == 404)
+
+    # SMTP backend (SendGrid / SES are SMTP relays too): delivery runs on a
+    # worker thread and the outcome is recorded on the row.
+    import time as _time
+    from unittest.mock import patch as _p
+    from app.models import DevelopmentEmail as _Email, User as _User
+    from app.services import email_service as _es
+
+    def _wait_status(email_id, timeout=10):
+        deadline = _time.time() + timeout
+        while True:
+            with SessionLocal() as _db:
+                row = _db.get(_Email, email_id)
+                _db.expunge(row)
+            if row.status != "queued" or _time.time() > deadline:
+                return row
+            _time.sleep(0.1)
+
+    sent_messages = []
+    # Test users have @example.com addresses, which real sends skip; delivery
+    # here is mocked or refused, so let them through for these checks.
+    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "_undeliverable", return_value=False), \
+            _p.object(_es, "smtp_send", side_effect=sent_messages.append):
+        with SessionLocal() as _db:
+            row = _es.send_email(_db, _db.get(_User, customer_id), "SMTP check", "plain body",
+                                 "<p>html body</p>", notification_type="info")
+            smtp_id, smtp_status = row.id, row.status
+        check("smtp backend queues instead of storing", smtp_status == "queued", smtp_status)
+        row = _wait_status(smtp_id)
+    check("smtp backend sends the message and marks it sent",
+          row.status == "sent" and row.sent_at is not None and len(sent_messages) == 1, row.status)
+    if sent_messages:
+        msg = sent_messages[0]
+        check("sent message is multipart text + HTML addressed to the user",
+              msg["To"] == CUSTOMER_EMAIL and msg.get_body(("html",)) is not None
+              and msg.get_body(("plain",)).get_content().strip() == "plain body", str(msg["To"]))
+
+    # A real SMTP connection attempt to a port nothing listens on: the call
+    # still returns normally and the failure is recorded, not raised.
+    with _p.object(settings, "EMAIL_BACKEND", "smtp"), _p.object(_es, "_undeliverable", return_value=False), \
+            _p.object(settings, "SMTP_HOST", "127.0.0.1"), \
+            _p.object(settings, "SMTP_PORT", 9), _p.object(settings, "SMTP_TIMEOUT", 3):
+        with SessionLocal() as _db:
+            failing_id = _es.send_email(_db, _db.get(_User, customer_id), "Unreachable", "x").id
+        row = _wait_status(failing_id)
+        check("unreachable SMTP server marks the email failed with the reason",
+              row.status == "failed" and bool(row.error), f"{row.status} {row.error}")
+        check("staff cannot retry emails",
+              client.post(f"/admin/emails/{failing_id}/retry", headers=staff_auth).status_code == 403)
+        with _p.object(_es, "smtp_send", return_value=None):
+            r = client.post(f"/admin/emails/{failing_id}/retry", headers=admin_auth)
+            check("admin can retry a failed email", r.status_code == 200 and r.json()["status"] == "queued", r.text)
+            row = _wait_status(failing_id)
+    check("retried email is delivered", row.status == "sent", row.status)
+
+    # ---- Admin panel APIs ----
+    r = client.get("/admin/analytics", headers=admin_auth)
+    stats = r.json()
+    check("admin analytics", r.status_code == 200 and len(stats["trend"]) == 30, r.text[:300])
+    k = stats["kpis"]
+    check("analytics KPIs are consistent",
+          k["total_orders"] == sum(stats["orders_by_status"].values())
+          and k["total_revenue"] >= co["amount"] and k["paid_orders"] >= 1
+          and k["average_order_value"] > 0, str(k))
+    check("analytics trend covers today's orders", stats["trend"][-1]["orders"] >= 1, str(stats["trend"][-1]))
+    check("analytics top products and categories come from real sales",
+          len(stats["top_products"]) >= 1 and len(stats["sales_by_category"]) >= 1
+          and all(p["units_sold"] > 0 for p in stats["top_products"]), str(stats["top_products"])[:300])
+    check("analytics reports roles and email delivery",
+          set(stats["users_by_role"]) == {"admin", "staff", "customer"}
+          and stats["emails"]["total"] >= 1, str(stats["emails"]))
+    check("analytics window is adjustable",
+          len(client.get("/admin/analytics?days=7", headers=admin_auth).json()["trend"]) == 7)
+    check("staff cannot see analytics", client.get("/admin/analytics", headers=staff_auth).status_code == 403)
+    check("customer cannot see analytics", client.get("/admin/analytics", headers=auth).status_code == 403)
+    r = client.get("/admin/users", params={"search": f"smoke-customer-{RUN_ID}"}, headers=admin_auth)
+    users = r.json()
+    check("admin user directory with order stats",
+          r.status_code == 200 and len(users) == 1 and users[0]["orders"] >= 1
+          and users[0]["total_spent"] >= co["amount"], r.text)
+    check("filter users by role",
+          all(u["role"] == "staff" for u in client.get("/admin/users?role=staff", headers=admin_auth).json()))
+    check("staff cannot list users", client.get("/admin/users", headers=staff_auth).status_code == 403)
+    r = client.get("/admin/emails?status=failed", headers=admin_auth)
+    check("admin email log filters by delivery status",
+          r.status_code == 200 and all(e["status"] == "failed" for e in r.json()), r.text[:200])
+    check("admin email log shows who each email went to",
+          any(e["user_name"] == "Smoke Customer" for e in client.get("/admin/emails", headers=admin_auth).json()))
 
     # ---- Invoices ----
     r = client.get("/invoices", headers=auth)
@@ -642,6 +846,14 @@ try:
     r = client.get("/auth/me", headers={"Authorization": f"Bearer {create_access_token(fb_user_id, 'customer')}"})
     check("that user's profile round-trips through the API (EmailStr accepts the synthetic address)",
           r.status_code == 200 and r.json()["email"] == mock_email, r.text)
+    from app.models import User as _FbUser
+    from app.services.email_service import send_email as _send_email
+    from unittest.mock import patch as _fb_patch
+    with _fb_patch.object(settings, "EMAIL_BACKEND", "smtp"),             _fb_patch("app.services.email_service.smtp_send") as fb_smtp, SessionLocal() as fb_db:
+        fb_status = _send_email(fb_db, fb_db.get(_FbUser, fb_user_id), "Hello", "body").status
+    check("nothing is handed to SMTP for a placeholder address", not fb_smtp.called)
+    check("emails to a placeholder address are recorded as skipped, never sent",
+          fb_status == "skipped", fb_status)
 
     print(f"\nAll {passed} checks passed.")
 finally:

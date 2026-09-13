@@ -9,8 +9,8 @@ from ..database import get_db
 from ..deps import get_current_user, require_admin, require_staff_or_admin
 from ..models import Invoice, Order, OrderStatus, Payment, PaymentStatus, User, UserRole
 from ..schemas import AdminPaymentOut, PaymentOut, ReceiptOut
-from ..services import stripe_service
-from ..services.notification_service import notify
+from ..services import order_events, stripe_service
+from ..services.notification_service import publish_order_status
 from ..services.sequence_service import next_sequence_value
 
 logger = logging.getLogger(__name__)
@@ -33,43 +33,25 @@ def _issue_invoice(db: Session, order: Order) -> Invoice:
 
 
 def _mark_paid(db: Session, payment: Payment) -> None:
+    previous = payment.order.order_status.value
     payment.status = PaymentStatus.succeeded
     payment.order.payment_status = PaymentStatus.succeeded
     payment.order.order_status = OrderStatus.paid
-    if db.query(Invoice).filter(Invoice.order_id == payment.order_id).first() is None:
+    invoice = db.query(Invoice).filter(Invoice.order_id == payment.order_id).first()
+    if invoice is None:
         invoice = _issue_invoice(db, payment.order)
-        db.commit()
-        notify(
-            db,
-            payment.order.user_id,
-            "payment",
-            f"Invoice {invoice.invoice_number}",
-            f"Invoice {invoice.invoice_number} issued for order #{payment.order_id} "
-            f"({invoice.currency.upper()} {invoice.total:.2f}).",
-        )
-    else:
-        db.commit()
-    notify(
-        db,
-        payment.order.user_id,
-        "payment",
-        "Payment received",
-        f"Payment of {payment.currency.upper()} {payment.amount:.2f} for order "
-        f"#{payment.order_id} succeeded. Your order is confirmed!",
-    )
+    db.commit()
+    db.refresh(payment)
+    order_events.payment_succeeded(db, payment, invoice, previous_status=previous)
 
 
 def _mark_failed(db: Session, payment: Payment) -> None:
+    previous = payment.order.order_status.value
     payment.status = PaymentStatus.failed
     payment.order.payment_status = PaymentStatus.failed
     db.commit()
-    notify(
-        db,
-        payment.order.user_id,
-        "payment",
-        "Payment failed",
-        f"Payment for order #{payment.order_id} failed. Please try again.",
-    )
+    db.refresh(payment)
+    order_events.payment_failed(db, payment, previous_status=previous)
 
 
 @router.post("/webhook")
@@ -296,6 +278,8 @@ def delete_payment(
     order.payment_status = PaymentStatus.pending
     db.delete(payment)
     db.commit()
+    db.refresh(order)
+    publish_order_status(order, previous_status=order.order_status.value)
 
 
 @router.get("/{order_id}", response_model=PaymentOut)

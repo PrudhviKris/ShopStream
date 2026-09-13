@@ -8,7 +8,19 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, settings
 from .database import Base, engine
-from .routers import auth, cart, checkout, invoices, notifications, orders, payments, products
+from .routers import (
+    admin,
+    auth,
+    cart,
+    checkout,
+    dev_emails,
+    invoices,
+    notifications,
+    orders,
+    payments,
+    products,
+)
+from .schema_upgrade import upgrade_schema
 from .services.notification_service import manager
 
 
@@ -30,6 +42,7 @@ class ApiPrefixMiddleware:
         await self.app(scope, receive, send)
 
 Base.metadata.create_all(bind=engine)
+upgrade_schema(engine)
 
 
 @asynccontextmanager
@@ -56,8 +69,19 @@ tags_metadata = [
     {"name": "Invoices", "description": "Invoices are issued automatically when a payment "
      "succeeds. Customers see their own; admins see everyone's (`/invoices/all`) and the "
      "role definitions (`/roles`)."},
-    {"name": "Notifications", "description": "Notification inbox plus real-time push over "
-     "`ws://<host>/ws/notifications?token=<access_token>`."},
+    {"name": "Notifications", "description": "Order-event notifications (`order_placed`, "
+     "`order_confirmed`, `payment_successful`, `payment_failed`, `order_shipped`, "
+     "`order_delivered`, `order_cancelled`). `GET /notifications` lists them, "
+     "`POST /notifications/read` marks them read. "
+     "**Real-time:** connect a WebSocket to `ws://<host>/ws/notifications?token=<access_token>`. "
+     "Every message is `{\"event\", \"data\", \"sent_at\"}` with events `notification`, "
+     "`order_status_updated`, `cart_updated`, `notifications_read`, `order_deleted`. "
+     "(Swagger can't open WebSockets — use the storefront or a WS client.)"},
+    {"name": "Development Email", "description": "Emails sent to you. Every order confirmation, "
+     "payment success/failure and shipping update is recorded here; with `EMAIL_BACKEND=smtp` it "
+     "is also delivered (SMTP, SendGrid or AWS SES) and `status` shows whether it went out."},
+    {"name": "Admin", "description": "**Admin only.** Store analytics for the dashboard, the user "
+     "directory, and the log of every outgoing email."},
 ]
 
 app = FastAPI(
@@ -91,6 +115,8 @@ app.include_router(orders.router)
 app.include_router(payments.router)
 app.include_router(invoices.router)
 app.include_router(notifications.router)
+app.include_router(dev_emails.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["Health"])

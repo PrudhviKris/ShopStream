@@ -1,0 +1,15 @@
+{% extends "admin/index.html" %}
+{% comment %}
+  Adds an analytics shortcut above the app list. Extends the stock template
+  (Django resolves the parent from django.contrib.admin, not this file).
+{% endcomment %}
+{% block content %}
+<div class="module" style="margin-bottom:20px">
+  <h2>Analytics</h2>
+  <p style="padding:10px 12px;margin:0">
+    <a href="{% url 'analytics-dashboard' %}" style="font-weight:600">📈 Open the store analytics dashboard</a>
+    <span style="color:var(--body-quiet-color)"> — revenue, orders, stock, notifications and email delivery.</span>
+  </p>
+</div>
+{{ block.super }}
+{% endblock %}

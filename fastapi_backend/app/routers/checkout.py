@@ -11,8 +11,9 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import CartItem, Order, OrderItem, Payment, PaymentStatus, User
 from ..schemas import CheckoutResponse
-from ..services import stripe_service
-from ..services.notification_service import notify
+from .cart import build_cart
+from ..services import order_events, stripe_service
+from ..services.notification_service import publish_cart
 from ..services.sequence_service import next_sequence_value
 
 router = APIRouter(tags=["Checkout"])
@@ -137,18 +138,9 @@ def checkout(
         db.delete(item)
     db.commit()
 
-    if payment_method == "cash":
-        message = (
-            f"Order #{order.id} placed — cash on delivery. Keep your transaction ref "
-            f"{stripe_data['transaction_id']}; pay {settings.STRIPE_CURRENCY.upper()} "
-            f"{total:.2f} when your order arrives."
-        )
-    else:
-        message = (
-            f"Order #{order.id} created for {settings.STRIPE_CURRENCY.upper()} {total:.2f}. "
-            "Complete payment to confirm."
-        )
-    notify(db, user.id, "order", "Order placed", message)
+    db.refresh(order)
+    order_events.order_placed(db, order, payment)
+    publish_cart(user.id, build_cart(db, user.id), reason="checkout")
 
     return CheckoutResponse(
         order_id=order.id,

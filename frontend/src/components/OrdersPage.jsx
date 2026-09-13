@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useStoreEvent } from "../live";
 import { isAdmin } from "../roles";
 import { formatMoney } from "../money";
 
@@ -165,6 +166,8 @@ function AllOrders({ user, notify }) {
 
   const reload = () => api.allOrders().then(setOrders).catch(() => {});
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live: new orders, payments and status changes from anyone appear without a refresh.
+  useStoreEvent(["order_status_updated", "order_deleted"], reload, 300);
 
   const label = (o) => `#${o.order_number ?? o.id}`;
 

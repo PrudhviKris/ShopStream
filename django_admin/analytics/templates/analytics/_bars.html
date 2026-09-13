@@ -1,0 +1,20 @@
+{% load store_extras %}
+<section class="an-card">
+  <h2>{{ title }}</h2>
+  {% if note %}<p class="quiet">{{ note }}</p>{% endif %}
+  <div class="an-bars">
+    {% for b in bars %}
+      <div class="an-bar" tabindex="0"
+           aria-label="{{ b.label }}: {% if money %}{{ b.value|inr }}{% else %}{{ b.value }}{% endif %} ({{ b.share }}%)">
+        <span class="an-bar-label" title="{{ b.label }}">{{ b.label }}</span>
+        <span class="an-bar-track">
+          <span class="an-bar-fill" style="width: {{ b.pct }}%"></span>
+          <span class="an-bar-value">{% if money %}{{ b.value|inr_compact }}{% else %}{{ b.value }}{% endif %}</span>
+        </span>
+        <span class="an-tip"><strong>{% if money %}{{ b.value|inr }}{% else %}{{ b.value }}{% endif %}</strong>{{ b.label }} · {{ b.share }}% of total</span>
+      </div>
+    {% empty %}
+      <div class="an-empty">{{ empty }}</div>
+    {% endfor %}
+  </div>
+</section>

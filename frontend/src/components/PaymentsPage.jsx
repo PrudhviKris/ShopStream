@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useStoreEvent } from "../live";
 import { formatMoney } from "../money";
 
 function MyPayments({ orders }) {
@@ -32,6 +33,7 @@ function AllPayments({ notify }) {
   const [payments, setPayments] = useState([]);
   const reload = () => api.allPayments().then(setPayments).catch(() => {});
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useStoreEvent(["order_status_updated", "order_deleted"], reload, 300);
 
   async function remove(id) {
     if (!window.confirm(`Delete payment #${id}? Its order reverts to payment pending.`)) return;

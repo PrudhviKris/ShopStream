@@ -6,6 +6,7 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import CartItem, Product, User
 from ..schemas import CartAddRequest, CartItemOut, CartOut, CartUpdateRequest
+from ..services.notification_service import publish_cart
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
 
@@ -43,6 +44,14 @@ def build_cart(db: Session, user_id: int) -> CartOut:
     )
 
 
+def _changed(db: Session, user_id: int, reason: str) -> CartOut:
+    """Build the response and push the same cart to the user's other open
+    tabs/devices as a `cart_updated` WebSocket event."""
+    cart = build_cart(db, user_id)
+    publish_cart(user_id, cart, reason)
+    return cart
+
+
 @router.get("", response_model=CartOut)
 def view_cart(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return build_cart(db, user.id)
@@ -73,7 +82,7 @@ def add_to_cart(
     else:
         db.add(CartItem(user_id=user.id, product_id=body.product_id, quantity=body.quantity))
     db.commit()
-    return build_cart(db, user.id)
+    return _changed(db, user.id, "added")
 
 
 @router.put("/update", response_model=CartOut)
@@ -96,7 +105,7 @@ def update_cart_item(
         )
     item.quantity = body.quantity
     db.commit()
-    return build_cart(db, user.id)
+    return _changed(db, user.id, "updated")
 
 
 @router.delete("/remove/{product_id}", response_model=CartOut)
@@ -114,4 +123,4 @@ def remove_from_cart(
         raise HTTPException(status_code=404, detail="Product not in cart")
     db.delete(item)
     db.commit()
-    return build_cart(db, user.id)
+    return _changed(db, user.id, "removed")

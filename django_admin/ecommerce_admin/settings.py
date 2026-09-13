@@ -40,7 +40,7 @@ ROOT_URLCONF = "ecommerce_admin.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],  # project-level overrides (admin index)
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useStoreEvent } from "../live";
 import { ROLE_META, roleMeta } from "../roles";
 import { formatMoneyShort } from "../money";
 
@@ -8,6 +9,9 @@ export default function DashboardPage({ user, products, cart, orders, onNavigate
   const [adminStats, setAdminStats] = useState(null);
   const totalStock = products.reduce((a, p) => a + Number(p.stock || 0), 0);
   const cartItems = cart ? cart.items.reduce((a, i) => a + i.quantity, 0) : 0;
+
+  const [statsTick, setStatsTick] = useState(0);
+  useStoreEvent(["order_status_updated", "order_deleted"], () => setStatsTick((t) => t + 1), 600);
 
   useEffect(() => {
     if (user.role !== "admin") return;
@@ -19,7 +23,7 @@ export default function DashboardPage({ user, products, cart, orders, onNavigate
       const customers = new Set(allOrders.map((o) => o.user_email)).size;
       setAdminStats({ totalOrders: allOrders.length, revenue, pending, customers });
     }).catch(() => {});
-  }, [user.role]);
+  }, [user.role, statsTick]);
 
   const firstName = user.name.split(" ")[0];
 
@@ -32,6 +36,9 @@ export default function DashboardPage({ user, products, cart, orders, onNavigate
           <p>{user.role === "customer" ? "Browse products and manage your purchases." : meta.tagline}</p>
         </div>
         <div className="head-actions">
+          {user.role === "admin" && (
+            <button className="btn btn-outline" onClick={() => onNavigate("analytics")}>📈 Open analytics</button>
+          )}
           <button className="btn btn-primary" onClick={() => onNavigate("products")}>Browse products</button>
         </div>
       </div>

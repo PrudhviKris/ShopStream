@@ -74,6 +74,7 @@ class User(Base):
     cart_items = relationship("CartItem", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user")
     notifications = relationship("Notification", back_populates="user")
+    development_emails = relationship("DevelopmentEmail", back_populates="user", cascade="all, delete-orphan")
 
 
 class Product(Base):
@@ -238,15 +239,82 @@ class Invoice(Base):
         return self.order.order_number if self.order else None
 
 
+class NotificationType(str, enum.Enum):
+    """Every kind of notification the platform sends, one per order event.
+
+    Stored as a plain string column (not a DB enum) so rows written before
+    these existed — the older generic "order" / "payment" / "info" — still load.
+    """
+
+    order_placed = "order_placed"          # card order created, awaiting payment
+    order_confirmed = "order_confirmed"    # cash-on-delivery order accepted
+    payment_successful = "payment_successful"
+    payment_failed = "payment_failed"
+    order_shipped = "order_shipped"
+    order_delivered = "order_delivered"
+    order_cancelled = "order_cancelled"
+    info = "info"
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    type = Column(String(50), default="info")  # order / payment / info
+    type = Column(String(50), default=NotificationType.info.value, index=True)
     title = Column(String(200), nullable=False)
     message = Column(Text, default="")
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # The order this is about, when there is one — lets the storefront jump
+    # straight to it. Nullable and not a foreign key: deleting an order must
+    # not delete (or be blocked by) the customer's notification history.
+    order_id = Column(Integer, nullable=True, index=True)
 
     user = relationship("User", back_populates="notifications")
+
+    # The spec's field names, exposed alongside the column names the rest of
+    # the platform (and the Django admin) already use.
+    @property
+    def read_status(self) -> bool:
+        return self.is_read
+
+    @property
+    def timestamp(self) -> datetime:
+        return self.created_at
+
+
+class EmailStatus(str, enum.Enum):
+    stored = "stored"    # EMAIL_BACKEND=database: kept in the dev inbox, not sent
+    queued = "queued"    # handed to the SMTP worker, not delivered yet
+    sent = "sent"        # accepted by the SMTP server
+    failed = "failed"    # SMTP refused or unreachable — see `error`
+    skipped = "skipped"  # placeholder address (e.g. Facebook account with no email)
+
+
+class DevelopmentEmail(Base):
+    """Every outgoing email, whichever backend delivered it.
+
+    With EMAIL_BACKEND=database this *is* the delivery (a dev inbox); with
+    EMAIL_BACKEND=smtp it's the outbox log recording whether each message
+    actually went out.
+    """
+
+    __tablename__ = "development_emails"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    to_email = Column(String(320), nullable=False)
+    from_email = Column(String(320), nullable=False)
+    subject = Column(String(300), nullable=False)
+    body = Column(Text, nullable=False)
+    html_body = Column(Text, nullable=True)
+    notification_type = Column(String(50), nullable=True, index=True)
+    status = Column(String(20), default=EmailStatus.stored.value, nullable=False, index=True)
+    error = Column(Text, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="development_emails")

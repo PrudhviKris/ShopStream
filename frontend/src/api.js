@@ -95,8 +95,18 @@ export const api = {
   deleteOrder: (orderId) => request(`/orders/${orderId}`, { method: "DELETE" }),
   deletePayment: (paymentId) => request(`/payments/${paymentId}`, { method: "DELETE" }),
   notifications: () => request("/notifications"),
-  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "PUT" }),
-  markAllNotificationsRead: () => request("/notifications/read-all", { method: "PUT" }),
+  // POST /notifications/read — pass ids to mark just those, nothing to mark all.
+  markNotificationsRead: (ids) =>
+    request("/notifications/read", { method: "POST", body: ids ? { notification_ids: ids } : { all: true } }),
+
+  // ---- email ----
+  myEmails: () => request("/dev/emails"),
+
+  // ---- admin panel ----
+  analytics: (days = 30) => request(`/admin/analytics?days=${days}`),
+  adminUsers: (params = {}) => request(`/admin/users?${new URLSearchParams(params)}`),
+  adminEmails: (params = {}) => request(`/admin/emails?${new URLSearchParams(params)}`),
+  retryEmail: (id) => request(`/admin/emails/${id}/retry`, { method: "POST" }),
 
   // ---- invoices ----
   myInvoices: () => request("/invoices"),
@@ -120,7 +130,11 @@ export const api = {
   allInvoices: () => request("/invoices/all"),
   roles: () => request("/roles"),
 
-  // Real-time notification stream (wss:// automatically when served over https)
+  // Make sure the access token is fresh before opening a socket with it
+  // (a socket can't refresh mid-handshake the way request() does).
+  ensureFreshToken: () => request("/auth/me").then(() => true).catch(() => false),
+
+  // Real-time event stream (wss:// automatically when served over https)
   notificationSocket() {
     const ws = new WebSocket(
       `${ABSOLUTE_BASE.replace(/^http/, "ws")}/ws/notifications?token=${tokens.access}`

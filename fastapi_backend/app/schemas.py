@@ -242,11 +242,71 @@ class RoleOut(BaseModel):
 
 # ---------- Notifications ----------
 class NotificationOut(BaseModel):
+    """`read_status` / `timestamp` are the same values as `is_read` /
+    `created_at` — both spellings are returned so either works for clients."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     type: str
     title: str
     message: str
+    order_id: Optional[int] = None
     is_read: bool
+    read_status: bool
     created_at: datetime
+    timestamp: datetime
+
+
+class NotificationReadRequest(BaseModel):
+    notification_ids: Optional[List[int]] = Field(
+        default=None,
+        description="Mark these notifications read. Omit (or send `all: true`) to mark every one read.",
+        examples=[[12, 13]],
+    )
+    all: bool = Field(default=False, description="Mark every unread notification read.")
+
+
+class NotificationReadResult(BaseModel):
+    marked_read: int
+    unread_count: int
+
+
+class UnreadCount(BaseModel):
+    unread_count: int
+
+
+# ---------- Email ----------
+class DevelopmentEmailOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    to_email: str
+    from_email: str
+    subject: str
+    body: str
+    html_body: Optional[str] = None
+    notification_type: Optional[str] = None
+    status: str
+    error: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class AdminEmailOut(DevelopmentEmailOut):
+    user_id: int
+    user_name: Optional[str] = None
+
+
+# ---------- Admin ----------
+class AdminUserOut(BaseModel):
+    id: int
+    customer_number: Optional[int] = None
+    name: str
+    email: str
+    role: UserRole
+    auth_provider: str
+    created_at: datetime
+    orders: int
+    total_spent: float
+    last_order_at: Optional[datetime] = None

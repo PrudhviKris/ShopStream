@@ -96,13 +96,26 @@ class Settings:
     CHECKOUT_SUCCESS_URL = os.getenv("CHECKOUT_SUCCESS_URL") or f"{PUBLIC_URL}/receipt"
     CHECKOUT_CANCEL_URL = os.getenv("CHECKOUT_CANCEL_URL") or f"{PUBLIC_URL}/receipt?cancelled=1"
 
-    # Email / SMTP
+    # Email
+    # EMAIL_BACKEND picks how order emails are delivered:
+    #   database — stored in development_emails and readable at GET /dev/emails
+    #              (default: works with no mail server at all)
+    #   smtp     — actually sent through SMTP_* below, and still logged there.
+    # SendGrid and AWS SES are both SMTP relays, so "smtp" covers them too:
+    #   SendGrid: SMTP_HOST=smtp.sendgrid.net  SMTP_PORT=587  SMTP_USE_TLS=true
+    #             SMTP_USERNAME=apikey  SMTP_PASSWORD=<your SendGrid API key>
+    #   AWS SES:  SMTP_HOST=email-smtp.<region>.amazonaws.com  SMTP_PORT=587
+    #             SMTP_USE_TLS=true  SMTP_USERNAME/PASSWORD=<SES SMTP credentials>
+    # EMAIL_FROM must be a sender address the provider has verified.
     EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "true").lower() == "true"
+    EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "database").strip().lower()
     SMTP_HOST = os.getenv("SMTP_HOST", "127.0.0.1")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
     SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"  # STARTTLS (port 587)
+    SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"  # implicit TLS (port 465)
+    SMTP_TIMEOUT = float(os.getenv("SMTP_TIMEOUT", "15"))
     EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@ecommerce.local")
 
     # Cart

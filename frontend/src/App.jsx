@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { canManageProducts } from "./roles";
+import { canManageProducts, isAdmin } from "./roles";
+import { emitStoreEvent, notificationIcon } from "./live";
 import Topbar from "./components/Topbar";
 import Sidebar from "./components/Sidebar";
 import AuthPage from "./components/AuthPage";
@@ -11,9 +12,10 @@ import PaymentsPage from "./components/PaymentsPage";
 import InvoicesPage from "./components/InvoicesPage";
 import CartDrawer from "./components/CartDrawer";
 import ReceiptPage from "./components/ReceiptPage";
+import AnalyticsPage from "./components/AnalyticsPage";
+import UsersPage from "./components/UsersPage";
+import EmailsPage from "./components/EmailsPage";
 import { ProductDetailModal, ProductFormModal } from "./components/Catalog";
-
-const TOAST_ICONS = { order: "📦", payment: "💳", info: "🔔" };
 
 // Stripe sends the shopper back to {PUBLIC_URL}/receipt?session_id=... (or
 // ?cancelled=1). Read that off the URL once at startup — the app has no router,
@@ -30,7 +32,7 @@ function readReceiptFromUrl() {
 }
 
 export default function App() {
-  const [view, setView] = useState("dashboard"); // dashboard | products | orders | payments | invoices | auth
+  const [view, setView] = useState("dashboard"); // dashboard | products | orders | payments | invoices | emails | analytics | users | auth
   const [user, setUser] = useState(null);
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
@@ -40,6 +42,7 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [notifRefresh, setNotifRefresh] = useState(0);
+  const [live, setLive] = useState(false); // real-time socket connected
   const [detailProduct, setDetailProduct] = useState(null); // shopping detail modal
   const [formProduct, setFormProduct] = useState(undefined); // undefined=closed, null=create, object=edit
   const [qty, setQty] = useState(1);
@@ -94,19 +97,71 @@ export default function App() {
     api.myInvoices().then(setInvoices).catch(() => {});
   }, [user]);
 
-  // ---- real-time notifications ----
+  // ---- real-time events ----
+  // One socket per signed-in session. It reconnects with backoff (server
+  // restarts, sleep, network blips) and refreshes the token first, since an
+  // access token expires long before a tab gets closed.
+  const userId = user?.id;
   useEffect(() => {
-    if (!user) return;
-    const ws = api.notificationSocket();
-    ws.onmessage = (event) => {
-      const n = JSON.parse(event.data);
-      pushToast(n);
-      setNotifRefresh((x) => x + 1);
+    if (!userId) return;
+    let ws = null;
+    let closed = false;
+    let attempt = 0;
+    let retryTimer = null;
+
+    const reloadMine = () => {
       api.orders().then(setOrders).catch(() => {});
       api.myInvoices().then(setInvoices).catch(() => {});
     };
-    return () => ws.close();
-  }, [user, pushToast]);
+
+    function handle(message) {
+      const { event, data } = message;
+      if (event === "connected") {
+        // Anything that happened while disconnected was missed — catch up.
+        if (ws?.wasReconnect) {
+          reloadMine();
+          api.cart().then(setCart).catch(() => {});
+        }
+        setNotifRefresh((x) => x + 1);
+      } else if (event === "notification") {
+        pushToast(data);
+        setNotifRefresh((x) => x + 1);
+      } else if (event === "notifications_read") {
+        setNotifRefresh((x) => x + 1);
+      } else if (event === "cart_updated") {
+        const { reason, ...cartData } = data; // eslint-disable-line no-unused-vars
+        setCart(cartData);
+      } else if (event === "order_status_updated" || event === "order_deleted") {
+        if (event === "order_deleted" || data.user_id === userId) reloadMine();
+      }
+      emitStoreEvent(message);
+    }
+
+    async function open(isReconnect) {
+      await api.ensureFreshToken();
+      if (closed) return;
+      ws = api.notificationSocket();
+      ws.wasReconnect = isReconnect;
+      ws.onopen = () => { attempt = 0; setLive(true); };
+      ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch { /* ignore malformed */ } };
+      ws.onclose = () => {
+        setLive(false);
+        if (closed) return;
+        const delay = Math.min(30000, 1000 * 2 ** attempt++);
+        retryTimer = setTimeout(() => open(true), delay);
+      };
+    }
+
+    open(false);
+    const keepAlive = setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send("ping"); }, 25000);
+    return () => {
+      closed = true;
+      clearTimeout(retryTimer);
+      clearInterval(keepAlive);
+      ws?.close();
+      setLive(false);
+    };
+  }, [userId, pushToast]);
 
   // ---- actions ----
   function handleSearch(text) {
@@ -199,7 +254,7 @@ export default function App() {
         <div className="toasts">
           {toasts.map((t) => (
             <div key={t.id} className="toast">
-              <span>{TOAST_ICONS[t.type] || "🔔"}</span>
+              <span>{notificationIcon(t.type)}</span>
               <div><div className="t">{t.title}</div><div className="m">{t.message}</div></div>
             </div>
           ))}
@@ -220,6 +275,7 @@ export default function App() {
         onSearch={handleSearch}
         onLogout={logout}
         notifRefresh={notifRefresh}
+        live={live}
       />
 
       <div className="layout">
@@ -275,6 +331,9 @@ export default function App() {
 
           {!receiptFor && view === "payments" && <PaymentsPage user={user} orders={orders} notify={notify} />}
           {!receiptFor && view === "invoices" && <InvoicesPage user={user} />}
+          {!receiptFor && view === "emails" && <EmailsPage user={user} notify={notify} />}
+          {!receiptFor && view === "analytics" && isAdmin(user.role) && <AnalyticsPage onNavigate={setView} />}
+          {!receiptFor && view === "users" && isAdmin(user.role) && <UsersPage />}
         </main>
       </div>
 
@@ -300,7 +359,7 @@ export default function App() {
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className="toast">
-            <span>{TOAST_ICONS[t.type] || "🔔"}</span>
+            <span>{notificationIcon(t.type)}</span>
             <div><div className="t">{t.title}</div><div className="m">{t.message}</div></div>
           </div>
         ))}
