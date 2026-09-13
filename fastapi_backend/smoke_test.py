@@ -505,8 +505,9 @@ try:
     check("POST /notifications/read {all: true} marks every one read",
           r.status_code == 200 and r.json()["unread_count"] == 0, r.text)
     check("unread_only now empty", client.get("/notifications?unread_only=true", headers=auth).json() == [])
-    check("deprecated PUT /notifications/read-all still works",
-          client.put("/notifications/read-all", headers=auth).status_code == 200)
+    check("the old PUT mark-read endpoints are gone (POST /notifications/read replaces them)",
+          client.put("/notifications/read-all", headers=auth).status_code in (404, 405)
+          and client.put(f"/notifications/{first['id']}/read", headers=auth).status_code in (404, 405))
 
     # ---- Email notifications (EMAIL_BACKEND=database in tests) ----
     emails = client.get("/dev/emails", headers=auth).json()
