@@ -3,7 +3,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.http import JsonResponse
 from django.shortcuts import render
 
-from .stats import store_stats, with_chart_geometry
+from .stats import chart_payload, store_stats
 
 RANGES = (7, 30, 90)
 
@@ -21,10 +21,12 @@ def dashboard(request):
     """Analytics dashboard, rendered inside the admin's own chrome.
     Visit /analytics/ while logged into /admin/."""
     days = _days(request)
+    stats = store_stats(days)
     context = {
         **admin.site.each_context(request),
         "title": "Store analytics",
-        "stats": with_chart_geometry(store_stats(days)),
+        "stats": stats,
+        "chart_data": chart_payload(stats),
         "days": days,
         "ranges": RANGES,
     }

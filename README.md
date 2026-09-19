@@ -71,12 +71,26 @@ python manage.py createsuperuser
 python manage.py runserver 8001
 ```
 
-- Admin panel: http://localhost:8001/admin/ — users, products, orders (ship / deliver /
-  cancel actions that enforce the allowed transitions), payments, invoices, notifications
-  (mark read/unread) and the email log (with a sandboxed HTML preview)
-- Analytics dashboard: http://localhost:8001/analytics/ — revenue trend, orders by status,
-  sales by category and payment method, top sellers, low stock, recent orders, email
-  delivery; `?days=7|30|90`. Same numbers as JSON at http://localhost:8001/analytics/data/
+- Admin panel: http://localhost:8001/admin/
+  - **Users** — view and edit accounts, assign roles (admin/staff/customer) inline, and
+    activate/deactivate. Deactivating blocks login *and* invalidates tokens the user already
+    holds; the last active admin can't be deactivated, and users are never deleted.
+  - **Products** — add, edit and delete, update stock, and **upload images** (stored in
+    `fastapi_backend/media/`, served by FastAPI at `/media/...`). A product that appears on
+    an order can't be deleted; set its stock to 0 to retire it.
+  - **Orders** — every order with its payment inline (amount, method, transaction id,
+    status) and ship/deliver/cancel actions that enforce the allowed transitions.
+  - **Notifications** and the **email log**, with a sandboxed HTML preview.
+- Analytics dashboard: http://localhost:8001/analytics/ — **Chart.js** charts for total
+  sales, the revenue trend, orders by status, sales by category, top-selling products,
+  revenue by payment method and email delivery, plus low-stock alerts and recent orders.
+  `?days=7|30|90`; the same numbers as JSON at http://localhost:8001/analytics/data/.
+  Chart.js is vendored at `analytics/static/analytics/chart.umd.js` (no CDN at runtime); to
+  update it: `npm i chart.js && cp node_modules/chart.js/dist/chart.umd.js <that path>`.
+- Export reports: http://localhost:8001/reports/ — orders, sales and users as **CSV or
+  PDF**, scoped by a date range. CSVs carry a UTF-8 BOM for Excel; PDFs are written by a
+  small built-in writer (no reportlab dependency) and spell amounts `INR 1,234.00`, since
+  the base PDF fonts have no ₹ glyph.
 
 The store models are `managed = False` — Django reads/writes the tables owned by
 the FastAPI service in the same MySQL database (credentials come from

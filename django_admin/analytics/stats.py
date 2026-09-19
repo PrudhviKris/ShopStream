@@ -1,6 +1,6 @@
 """Store analytics, computed once and shared by the HTML dashboard and the
 JSON endpoint so the two can never disagree."""
-import math
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -106,65 +106,33 @@ def store_stats(days=30):
     }
 
 
-def with_chart_geometry(stats):
-    """Add pre-computed bar widths / SVG paths so the template stays logic-free."""
-    trend = stats["trend"]
-    peak = max([t["revenue"] for t in trend] + [0])
-    ceiling = _nice_ceiling(peak)
-    width, height = 1000, 220
-    left, bottom, top = 70, 26, 12
-    inner_w, inner_h = width - left - 16, height - bottom - top
+def chart_payload(stats):
+    """Just the series Chart.js needs: labels + values, nothing pre-rendered."""
+    def short(iso):
+        day = datetime.fromisoformat(iso)
+        return day.strftime("%-d %b") if os.name != "nt" else day.strftime("%#d %b")
 
-    def x(i):
-        return left + (inner_w / 2 if len(trend) <= 1 else i / (len(trend) - 1) * inner_w)
-
-    def y(v):
-        return top + inner_h - (v / ceiling) * inner_h
-
-    points = [(x(i), y(t["revenue"])) for i, t in enumerate(trend)]
-    line = "".join(f"{'L' if i else 'M'}{px:.1f},{py:.1f}" for i, (px, py) in enumerate(points))
-    stats["chart"] = {
-        "width": width,
-        "height": height,
-        "line": line,
-        "area": f"{line}L{x(len(trend) - 1):.1f},{y(0):.1f}L{x(0):.1f},{y(0):.1f}Z" if trend else "",
-        "ticks": [{"y": round(y(ceiling / 4 * k), 1), "value": ceiling / 4 * k} for k in range(5)],
-        "points": [
-            {"x": round(px, 1), "y": round(py, 1), "date": t["date"], "revenue": t["revenue"], "orders": t["orders"]}
-            for (px, py), t in zip(points, trend)
+    return {
+        "trend": [
+            {"label": short(t["date"]), "revenue": t["revenue"], "orders": t["orders"]}
+            for t in stats["trend"]
         ],
-        "x_labels": [
-            {"x": round(x(i), 1), "date": trend[i]["date"],
-             "anchor": "start" if i == 0 else "end" if i == len(trend) - 1 else "middle"}
-            for i in sorted({0, (len(trend) - 1) // 2, len(trend) - 1}) if trend
+        "status": [
+            {"label": status.title(), "value": stats["orders_by_status"].get(status, 0)}
+            for status in ORDER_STATUSES
         ],
-        "left": left,
-        "right": width - 16,
-        "baseline": round(y(0), 1),
-        "top": top,
+        "category": [
+            {"label": row["category"].title(), "value": row["revenue"]}
+            for row in stats["sales_by_category"]
+        ],
+        "top": [
+            {"label": row["name"], "value": row["units_sold"]}
+            for row in stats["top_sellers"]
+        ],
+        "method": [
+            {"label": method, "value": total} for method, total in stats["revenue_by_method"].items()
+        ],
+        "email": [
+            {"label": status, "value": count} for status, count in stats["emails"]["by_status"].items()
+        ],
     }
-
-    def bars(pairs):
-        biggest = max([v for _, v in pairs] + [0])
-        total = sum(v for _, v in pairs)
-        return [
-            {"label": label, "value": value,
-             "pct": round(value / biggest * 100, 1) if biggest else 0,
-             "share": round(value / total * 100) if total else 0}
-            for label, value in pairs
-        ]
-
-    stats["status_bars"] = bars([(s, stats["orders_by_status"].get(s, 0)) for s in ORDER_STATUSES])
-    stats["category_bars"] = bars([(c["category"], c["revenue"]) for c in stats["sales_by_category"]])
-    stats["method_bars"] = bars(list(stats["revenue_by_method"].items()))
-    stats["email_bars"] = bars(list(stats["emails"]["by_status"].items()))
-    return stats
-
-
-def _nice_ceiling(value, ticks=4):
-    """A clean round axis top (1, 2, 2.5, 5 x 10^n per tick)."""
-    if value <= 0:
-        return ticks
-    raw = value / ticks
-    magnitude = 10 ** math.floor(math.log10(raw))
-    return next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= raw) * ticks

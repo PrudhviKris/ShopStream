@@ -1,19 +1,21 @@
 {% extends "admin/base_site.html" %}
-{% load store_extras %}
+{% load static store_extras %}
 
 {% block extrastyle %}{{ block.super }}
 <style>
-  /* Chart tokens: one validated accent per theme; text stays in the admin's ink. */
-  .an { --mark: #2a78d6; --grid: #e1e0d9; --axis: #898781; --tip-bg: #0b0b0b; --tip-fg: #fff; }
+  /* One validated accent per theme; all text stays in the admin's own ink. */
+  .an { --mark: #2a78d6; --mark-soft: rgba(42,120,214,.12); --grid: #e1e0d9; --axis: #898781; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .an { --mark: #3987e5; --grid: #2c2c2a; --tip-bg: #f5f5f5; --tip-fg: #0b0b0b; }
+    :root:not([data-theme="light"]) .an { --mark: #3987e5; --mark-soft: rgba(57,135,229,.18); --grid: #2c2c2a; }
   }
-  :root[data-theme="dark"] .an { --mark: #3987e5; --grid: #2c2c2a; --tip-bg: #f5f5f5; --tip-fg: #0b0b0b; }
+  :root[data-theme="dark"] .an { --mark: #3987e5; --mark-soft: rgba(57,135,229,.18); --grid: #2c2c2a; }
 
   .an { max-width: 1200px; }
   .an-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
   .an-head p { margin: 4px 0 0; color: var(--body-quiet-color); }
-  .an-ranges a { display: inline-block; padding: 6px 12px; border: 1px solid var(--hairline-color); border-radius: 999px; margin-left: 6px; font-size: 13px; }
+  .an-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .an-ranges a, .an-btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--hairline-color); border-radius: 999px; font-size: 13px; }
+  .an-ranges a { margin-left: 6px; }
   .an-ranges a.on { background: var(--mark); border-color: var(--mark); color: #fff; }
   .an-card { background: var(--body-bg); border: 1px solid var(--hairline-color); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
   .an-card h2 { background: none; color: var(--body-fg); padding: 0; margin: 0 0 4px; font-size: 15px; text-transform: none; letter-spacing: 0; }
@@ -33,31 +35,13 @@
   .an-grid + .an-grid, .an-grid + .an-card { margin-top: 16px; }
   @media (max-width: 1000px) { .an-tiles { grid-template-columns: 1fr 1fr; } .an-grid { grid-template-columns: 1fr; } }
 
-  .an-trend { position: relative; }
-  .an-trend svg { width: 100%; height: auto; display: block; overflow: visible; }
-  .an-grid-line { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
-  .an-axis { fill: var(--axis); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .an-line { fill: none; stroke: var(--mark); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-  .an-area { fill: var(--mark); opacity: .1; }
-  .an-cross { stroke: var(--axis); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  .an-dot { fill: var(--mark); stroke: var(--body-bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
-  .an-tip { position: absolute; top: 6px; pointer-events: none; background: var(--tip-bg); color: var(--tip-fg); border-radius: 8px; padding: 6px 10px; white-space: nowrap; font-size: 12px; }
-  .an-tip strong { display: block; font-size: 14px; }
-
-  .an-bars { display: grid; gap: 2px; }
-  .an-bar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; align-items: center; gap: 12px; padding: 5px 6px; border-radius: 6px; position: relative; }
-  .an-bar:hover, .an-bar:focus { background: var(--darkened-bg); outline: none; }
-  .an-bar-label { text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--body-fg); }
-  .an-bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .an-bar-fill { height: 14px; max-width: calc(100% - 70px); background: var(--mark); border-radius: 0 4px 4px 0; flex: none; }
-  .an-bar-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--body-fg); }
-  .an-bar .an-tip { display: none; left: 50%; top: auto; bottom: calc(100% + 2px); transform: translateX(-50%); z-index: 2; }
-  .an-bar:hover .an-tip, .an-bar:focus .an-tip { display: block; }
+  .an-chart { position: relative; height: 240px; }
+  .an-chart.tall { height: 300px; }
   .an-empty { color: var(--body-quiet-color); padding: 12px 0; }
-
   .an table { width: 100%; }
   .an td.num, .an th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .an details summary { cursor: pointer; color: var(--link-fg); margin-top: 10px; }
+  .an .warn { color: var(--error-fg, #ba2121); font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -72,14 +56,17 @@
       <h1>Store analytics</h1>
       <p>Generated {{ stats.generated_at }} (UTC). Raw numbers: <a href="{% url 'analytics-data' %}?days={{ days }}">JSON</a>.</p>
     </div>
-    <nav class="an-ranges" aria-label="Date range">
-      {% for d in ranges %}<a href="?days={{ d }}" class="{% if d == days %}on{% endif %}">Last {{ d }} days</a>{% endfor %}
-    </nav>
+    <div class="an-actions">
+      <nav class="an-ranges" aria-label="Date range">
+        {% for d in ranges %}<a href="?days={{ d }}" class="{% if d == days %}on{% endif %}">Last {{ d }} days</a>{% endfor %}
+      </nav>
+      <a class="an-btn" href="{% url 'reports-index' %}">⬇ Export reports</a>
+    </div>
   </div>
 
   <section class="an-card an-hero">
     <div>
-      <span class="an-label">Revenue · last {{ days }} days</span>
+      <span class="an-label">Total sales · last {{ days }} days</span>
       <strong class="an-figure">{{ stats.window_revenue|inr:0 }}</strong>
       <span style="color:var(--body-quiet-color)">{{ stats.total_revenue|inr:0 }} all time from {{ stats.paid_orders }} paid order{{ stats.paid_orders|pluralize }}</span>
     </div>
@@ -102,25 +89,9 @@
   </div>
 
   <section class="an-card">
-    <h2>Revenue by day</h2>
-    <p class="quiet">Settled payments, by the day they cleared (UTC). Hover or use the arrow keys to read a day.</p>
-    <div class="an-trend" id="an-trend">
-      <svg viewBox="0 0 {{ stats.chart.width }} {{ stats.chart.height }}" role="img" tabindex="0"
-           aria-label="Revenue by day for the last {{ days }} days — values are in the table below">
-        {% for t in stats.chart.ticks %}
-          <line class="an-grid-line" x1="{{ stats.chart.left }}" x2="{{ stats.chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
-          <text class="an-axis" x="{{ stats.chart.left|add:'-10' }}" y="{{ t.y }}" dy="0.32em" text-anchor="end">{{ t.value|inr_compact }}</text>
-        {% endfor %}
-        {% for l in stats.chart.x_labels %}
-          <text class="an-axis" x="{{ l.x }}" y="{{ stats.chart.height|add:'-6' }}" text-anchor="{{ l.anchor }}">{{ l.date }}</text>
-        {% endfor %}
-        <path class="an-area" d="{{ stats.chart.area }}"/>
-        <path class="an-line" d="{{ stats.chart.line }}"/>
-        <line class="an-cross" id="an-cross" y1="{{ stats.chart.top }}" y2="{{ stats.chart.baseline }}" visibility="hidden"/>
-        <circle class="an-dot" id="an-dot" r="5" visibility="hidden"/>
-      </svg>
-      <div class="an-tip" id="an-tip" hidden><strong></strong><span></span></div>
-    </div>
+    <h2>Revenue trend</h2>
+    <p class="quiet">Settled payments, by the day they cleared (UTC)</p>
+    <div class="an-chart tall"><canvas id="chart-revenue" aria-label="Revenue by day — the same figures are in the table below" role="img"></canvas></div>
     <details>
       <summary>Show as table</summary>
       <table>
@@ -131,40 +102,63 @@
   </section>
 
   <div class="an-grid">
-    {% include "analytics/_bars.html" with title="Orders by status" bars=stats.status_bars money=False empty="No orders yet." %}
-    {% include "analytics/_bars.html" with title="Sales by category" note="Excludes cancelled orders" bars=stats.category_bars money=True empty="No sales yet." %}
-  </div>
-  <div class="an-grid">
-    {% include "analytics/_bars.html" with title="Revenue by payment method" bars=stats.method_bars money=True empty="No settled payments yet." %}
-    {% include "analytics/_bars.html" with title="Email delivery" note="stored = database inbox · sent/failed = SMTP" bars=stats.email_bars money=False empty="No emails sent yet." %}
+    <section class="an-card">
+      <h2>Orders by status</h2>
+      <p class="quiet">Every order ever placed</p>
+      <div class="an-chart"><canvas id="chart-status" role="img" aria-label="Orders by status"></canvas></div>
+    </section>
+    <section class="an-card">
+      <h2>Sales by category</h2>
+      <p class="quiet">Revenue, excluding cancelled orders</p>
+      <div class="an-chart"><canvas id="chart-category" role="img" aria-label="Sales by category"></canvas></div>
+    </section>
   </div>
 
   <div class="an-grid">
     <section class="an-card">
-      <h2>Top sellers</h2>
+      <h2>Top-selling products</h2>
       <p class="quiet">Units sold, excluding cancelled orders</p>
-      <table>
-        <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
-        <tbody>
-          {% for p in stats.top_sellers %}<tr><td><a href="{% url 'admin:analytics_product_change' p.product_id %}">{{ p.name }}</a></td><td class="num">{{ p.units_sold }}</td><td class="num">{{ p.revenue|inr }}</td></tr>
-          {% empty %}<tr><td colspan="3" class="an-empty">No sales yet.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+      <div class="an-chart"><canvas id="chart-top" role="img" aria-label="Top selling products by units sold"></canvas></div>
+      <details>
+        <summary>Show as table</summary>
+        <table>
+          <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
+          <tbody>
+            {% for p in stats.top_sellers %}<tr><td><a href="{% url 'admin:analytics_product_change' p.product_id %}">{{ p.name }}</a></td><td class="num">{{ p.units_sold }}</td><td class="num">{{ p.revenue|inr }}</td></tr>
+            {% empty %}<tr><td colspan="3" class="an-empty">No sales yet.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </details>
     </section>
     <section class="an-card">
-      <h2>Restock soon</h2>
-      <p class="quiet">5 units or fewer</p>
+      <h2>Low stock alerts</h2>
+      <p class="quiet">5 units or fewer — restock these</p>
       <table>
         <thead><tr><th>Product</th><th>Category</th><th class="num">Stock</th></tr></thead>
         <tbody>
-          {% for p in stats.low_stock_products %}<tr><td><a href="{% url 'admin:analytics_product_change' p.id %}">{{ p.name }}</a></td><td>{{ p.category }}</td><td class="num">{% if p.stock <= 0 %}⛔ Out{% else %}⚠ {{ p.stock }} left{% endif %}</td></tr>
-          {% empty %}<tr><td colspan="3" class="an-empty">Everything is well stocked.</td></tr>{% endfor %}
+          {% for p in stats.low_stock_products %}<tr>
+            <td><a href="{% url 'admin:analytics_product_change' p.id %}">{{ p.name }}</a></td>
+            <td>{{ p.category }}</td>
+            <td class="num">{% if p.stock <= 0 %}<span class="warn">⛔ Out of stock</span>{% else %}⚠ {{ p.stock }} left{% endif %}</td>
+          </tr>{% empty %}<tr><td colspan="3" class="an-empty">Everything is well stocked.</td></tr>{% endfor %}
         </tbody>
       </table>
     </section>
   </div>
 
-  <section class="an-card" style="margin-top:16px">
+  <div class="an-grid">
+    <section class="an-card">
+      <h2>Revenue by payment method</h2>
+      <div class="an-chart"><canvas id="chart-method" role="img" aria-label="Revenue by payment method"></canvas></div>
+    </section>
+    <section class="an-card">
+      <h2>Email delivery</h2>
+      <p class="quiet">stored = in-app inbox · sent/failed = SMTP</p>
+      <div class="an-chart"><canvas id="chart-email" role="img" aria-label="Emails by delivery status"></canvas></div>
+    </section>
+  </div>
+
+  <section class="an-card">
     <h2>Recent orders</h2>
     <table>
       <thead><tr><th>Order</th><th>Customer</th><th class="num">Total</th><th>Payment</th><th>Status</th><th>Placed (UTC)</th></tr></thead>
@@ -179,51 +173,100 @@
   </section>
 </div>
 
-{{ stats.chart.points|json_script:"an-points" }}
+{{ chart_data|json_script:"an-data" }}
+<script src="{% static 'analytics/chart.umd.js' %}"></script>
 <script>
 (function () {
-  const points = JSON.parse(document.getElementById("an-points").textContent);
-  const wrap = document.getElementById("an-trend");
-  const svg = wrap.querySelector("svg");
-  const cross = document.getElementById("an-cross");
-  const dot = document.getElementById("an-dot");
-  const tip = document.getElementById("an-tip");
-  const W = {{ stats.chart.width }};
-  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
-  let active = null;
+  const data = JSON.parse(document.getElementById("an-data").textContent);
+  const css = (name) => getComputedStyle(document.querySelector(".an")).getPropertyValue(name).trim();
+  const ink = (name, fallback) => getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
 
-  function show(i) {
-    if (i == null || !points.length) {
-      active = null; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.hidden = true; return;
+  const mark = css("--mark"), markSoft = css("--mark-soft");
+  const grid = css("--grid"), axis = css("--axis");
+  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+  const inrFull = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+
+  Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+  Chart.defaults.color = axis;
+  Chart.defaults.plugins.legend.display = false;   // single series everywhere
+  Chart.defaults.animation.duration = 300;
+  Chart.defaults.maintainAspectRatio = false;
+
+  const scales = (money, horizontal) => {
+    const valueAxis = { grid: { color: grid, drawBorder: false }, border: { display: false },
+                        ticks: { color: axis, callback: (v) => (money ? inr.format(v) : v), precision: 0 } };
+    const labelAxis = { grid: { display: false }, border: { display: false }, ticks: { color: axis } };
+    return horizontal ? { x: valueAxis, y: labelAxis } : { x: labelAxis, y: { ...valueAxis, beginAtZero: true } };
+  };
+  const tooltip = (money, suffix) => ({
+    displayColors: false,
+    callbacks: {
+      label: (ctx) => {
+        const value = ctx.parsed.y ?? ctx.parsed.x;
+        return money ? inrFull.format(value) : `${value}${suffix || ""}`;
+      },
+    },
+  });
+
+  // Revenue trend — 2px line with a light area wash, one series.
+  new Chart(document.getElementById("chart-revenue"), {
+    type: "line",
+    data: {
+      labels: data.trend.map((t) => t.label),
+      datasets: [{
+        data: data.trend.map((t) => t.revenue),
+        borderColor: mark, backgroundColor: markSoft, borderWidth: 2,
+        fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 5,
+        pointBackgroundColor: mark, pointHoverBorderColor: "#fff", pointHoverBorderWidth: 2,
+      }],
+    },
+    options: {
+      scales: scales(true, false),
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        tooltip: {
+          displayColors: false,
+          callbacks: {
+            label: (ctx) => {
+              const point = data.trend[ctx.dataIndex];
+              return `${inrFull.format(point.revenue)} · ${point.orders} order${point.orders === 1 ? "" : "s"}`;
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const bar = (canvasId, rows, { money = false, horizontal = false, suffix = "" } = {}) => {
+    const canvas = document.getElementById(canvasId);
+    if (!rows.length) {
+      canvas.closest(".an-chart").innerHTML = '<p class="an-empty">No data yet.</p>';
+      return;
     }
-    active = Math.max(0, Math.min(points.length - 1, i));
-    const p = points[active];
-    cross.setAttribute("x1", p.x); cross.setAttribute("x2", p.x); cross.setAttribute("visibility", "visible");
-    dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("visibility", "visible");
-    tip.querySelector("strong").textContent = inr.format(p.revenue);
-    tip.querySelector("span").textContent = `${p.date} · ${p.orders} order${p.orders === 1 ? "" : "s"}`;
-    tip.hidden = false;
-    const px = (p.x / W) * svg.getBoundingClientRect().width;
-    const flip = px > wrap.clientWidth - 190;
-    tip.style.left = `${px + (flip ? -12 : 12)}px`;
-    tip.style.transform = flip ? "translateX(-100%)" : "none";
-  }
-  svg.addEventListener("pointermove", (e) => {
-    const box = svg.getBoundingClientRect();
-    const x = ((e.clientX - box.left) / box.width) * W;
-    let best = 0;
-    points.forEach((p, i) => { if (Math.abs(p.x - x) < Math.abs(points[best].x - x)) best = i; });
-    show(best);
-  });
-  svg.addEventListener("pointerleave", () => show(null));
-  svg.addEventListener("blur", () => show(null));
-  svg.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") show(active == null ? 0 : active + 1);
-    else if (e.key === "ArrowLeft") show(active == null ? points.length - 1 : active - 1);
-    else if (e.key === "Escape") show(null);
-    else return;
-    e.preventDefault();
-  });
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: rows.map((r) => r.label),
+        datasets: [{
+          data: rows.map((r) => r.value),
+          backgroundColor: mark, hoverBackgroundColor: mark,
+          borderRadius: 4, borderSkipped: horizontal ? "left" : "bottom",
+          maxBarThickness: 24,
+        }],
+      },
+      options: {
+        indexAxis: horizontal ? "y" : "x",
+        scales: scales(money, horizontal),
+        plugins: { tooltip: tooltip(money, suffix) },
+      },
+    });
+  };
+
+  bar("chart-status", data.status, { suffix: " orders" });
+  bar("chart-category", data.category, { money: true, horizontal: true });
+  bar("chart-top", data.top, { horizontal: true, suffix: " units" });
+  bar("chart-method", data.method, { money: true, horizontal: true });
+  bar("chart-email", data.email, { horizontal: true, suffix: " emails" });
 })();
 </script>
 {% endblock %}

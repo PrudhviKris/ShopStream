@@ -11,7 +11,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Email, Invoice, Notification, Order, OrderItem, Payment, Product, Role, StoreUser
-from .stats import store_stats
+from .pdf import PdfReport
+from .reports import money, orders_report, sales_report, users_report
+from .stats import chart_payload, store_stats
 from .templatetags.store_extras import inr, inr_compact
 
 
@@ -447,11 +449,151 @@ class AnalyticsDashboardTests(TestCase):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("analytics-dashboard"), {"days": 7})
         self.assertEqual(response.status_code, 200)
-        for text in ("Store analytics", "Revenue by day", "Orders by status", "Sales by category",
-                     "Email delivery", "Top sellers", "Restock soon", "Recent orders",
+        for text in ("Store analytics", "Revenue trend", "Orders by status", "Sales by category",
+                     "Email delivery", "Top-selling products", "Low stock alerts", "Recent orders",
                      "Last 7 days", "Show as table", "\u20b921.60"):
             self.assertContains(response, text)
-        self.assertContains(response, 'id="an-points"')  # hover data for the trend chart
+        # Chart.js is vendored locally — no CDN at render time.
+        self.assertContains(response, "analytics/chart.umd.js")
+        self.assertContains(response, 'id="an-data"')
+        for canvas in ("chart-revenue", "chart-status", "chart-category", "chart-top",
+                       "chart-method", "chart-email"):
+            self.assertContains(response, f'id="{canvas}"')
+
+    def test_chart_payload_matches_the_stats(self):
+        stats = store_stats(7)
+        charts = chart_payload(stats)
+        self.assertEqual(len(charts["trend"]), 7)
+        self.assertAlmostEqual(charts["trend"][-1]["revenue"], 21.6)
+        self.assertEqual(charts["trend"][-1]["orders"], 1)
+        self.assertEqual([row["label"] for row in charts["status"]],
+                         ["Pending", "Paid", "Shipped", "Delivered", "Cancelled"])
+        self.assertEqual([row["value"] for row in charts["status"]], [0, 1, 0, 0, 0])
+        self.assertEqual(charts["category"], [{"label": "Gadgets", "value": 20.0}])
+        self.assertEqual(charts["top"][0], {"label": "Test Widget", "value": 2})
+        self.assertEqual(charts["email"], [{"label": "stored", "value": 1}])
+
+
+class PdfWriterTests(TestCase):
+    """The dependency-free PDF writer emits a structurally valid file."""
+
+    def _build(self, rows):
+        report = PdfReport("Test report", "subtitle", [("A", 100, "left"), ("B", 80, "right")])
+        report.add_rows(rows)
+        report.add_summary(["2 row(s)"])
+        return report.render()
+
+    def test_header_trailer_and_offsets(self):
+        pdf = self._build([["first", "1"], ["second", "2"]])
+        self.assertTrue(pdf.startswith(b"%PDF-1.4"))
+        self.assertTrue(pdf.rstrip().endswith(b"%%EOF"))
+
+        # every xref offset must land on the object it claims
+        start = pdf.rindex(b"startxref")
+        xref_at = int(pdf[start + len("startxref"):].split(b"%%EOF")[0].strip())
+        lines = pdf[xref_at:].split(b"\n")
+        count = int(lines[1].split()[1])
+        for number in range(1, count):
+            offset = int(lines[2 + number].split()[0])
+            self.assertTrue(pdf[offset:].startswith(b"%d 0 obj" % number),
+                            f"object {number} is not at offset {offset}")
+
+    def test_content_and_pagination(self):
+        pdf = self._build([["first", "1"], ["second", "2"]])
+        self.assertIn(b"(Test report)", pdf)
+        self.assertIn(b"(first)", pdf)
+        self.assertIn(b"(2 row\\(s\\))", pdf)  # parentheses are escaped
+        self.assertIn(b"/Count 1", pdf)
+
+        many = self._build([[f"row {i}", str(i)] for i in range(200)])
+        page_count = int(many.split(b"/Count ")[1].split(b" ")[0])
+        self.assertGreater(page_count, 1)
+        self.assertIn(b"(Page 2 of ", many)
+
+    def test_unsupported_characters_do_not_break_the_file(self):
+        pdf = self._build([["\u20b9 rupee and (parens)", "1"]])  # no rupee glyph in Helvetica
+        self.assertTrue(pdf.startswith(b"%PDF-1.4"))
+        self.assertIn(b"\\(parens\\)", pdf)
+
+
+class ReportExportTests(TestCase):
+    """Orders, sales and user reports download as CSV and PDF."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.customer, _, _, _, cls.order = make_store_data()
+        cls.staff = AdminUser.objects.create_user("staffer", "st@test.com", "StaffTestPass123!", is_staff=True)
+
+    def setUp(self):
+        self.client.force_login(self.staff)
+
+    def test_requires_staff(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("reports-index")).status_code, 302)
+        self.assertEqual(self.client.get(reverse("report-export", args=["orders", "csv"])).status_code, 302)
+
+    def test_index_lists_every_report(self):
+        response = self.client.get(reverse("reports-index"))
+        self.assertEqual(response.status_code, 200)
+        for title in ("Orders report", "Sales report", "User report"):
+            self.assertContains(response, title)
+
+    def test_orders_csv(self):
+        response = self.client.get(reverse("report-export", args=["orders", "csv"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment; filename=\"orders-report-", response["Content-Disposition"])
+        body = response.content.decode("utf-8-sig")
+        self.assertIn("Order,Placed (UTC),Customer", body)
+        self.assertIn("Test Customer", body)
+        self.assertIn("INR 21.60", body)
+        self.assertIn("mock_tx_1", body)
+        self.assertIn("1 order(s)", body)
+
+    def test_sales_csv_totals(self):
+        body = self.client.get(reverse("report-export", args=["sales", "csv"])).content.decode("utf-8-sig")
+        self.assertIn("Date,Paid orders,Units sold,Revenue,Average order", body)
+        self.assertIn("INR 21.60", body)
+        self.assertIn("Revenue: INR 21.60", body)
+
+    def test_users_csv_shows_roles_and_state(self):
+        body = self.client.get(reverse("report-export", args=["users", "csv"])).content.decode("utf-8-sig")
+        self.assertIn("cust@test.com", body)
+        self.assertIn("active", body)
+        self.assertIn("1 customer", body)
+
+    def test_pdf_exports(self):
+        for kind in ("orders", "sales", "users"):
+            with self.subTest(kind=kind):
+                response = self.client.get(reverse("report-export", args=[kind, "pdf"]))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/pdf")
+                self.assertTrue(response.content.startswith(b"%PDF-1.4"))
+                self.assertIn(b"%%EOF", response.content)
+
+    def test_date_range_scopes_the_rows(self):
+        far_past = {"from": "2020-01-01", "to": "2020-01-31"}
+        body = self.client.get(reverse("report-export", args=["orders", "csv"]), far_past).content.decode("utf-8-sig")
+        self.assertNotIn("Test Customer", body)
+        self.assertIn("0 order(s)", body)
+        # users are listed regardless of the window; their activity is scoped
+        users = self.client.get(reverse("report-export", args=["users", "csv"]), far_past).content.decode("utf-8-sig")
+        self.assertIn("cust@test.com", users)
+
+    def test_unknown_report_or_format_is_404(self):
+        self.assertEqual(self.client.get("/reports/nope.csv").status_code, 404)
+        self.assertEqual(self.client.get("/reports/orders.xlsx").status_code, 404)
+
+    def test_report_builders_agree_with_the_data(self):
+        start, end = datetime(2020, 1, 1), datetime(2030, 1, 1)
+        self.assertEqual(len(orders_report(start, end)["rows"]), 1)
+        self.assertEqual(sales_report(start, end)["rows"][0][3], "INR 21.60")
+        self.assertEqual(len(users_report(start, end)["rows"]), 2)
+
+    def test_money_uses_indian_grouping(self):
+        self.assertEqual(money(1234567.891), "INR 12,34,567.89")
+        self.assertEqual(money(0), "INR 0.00")
+        self.assertEqual(money(-99.5), "-INR 99.50")
 
 
 class CurrencyFormatTests(TestCase):

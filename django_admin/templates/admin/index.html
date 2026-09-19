@@ -8,7 +8,10 @@
   <h2>Analytics</h2>
   <p style="padding:10px 12px;margin:0">
     <a href="{% url 'analytics-dashboard' %}" style="font-weight:600">📈 Open the store analytics dashboard</a>
-    <span style="color:var(--body-quiet-color)"> — revenue, orders, stock, notifications and email delivery.</span>
+    <span style="color:var(--body-quiet-color)"> — sales, revenue trend, top sellers and low-stock alerts.</span>
+    <br>
+    <a href="{% url 'reports-index' %}" style="font-weight:600">⬇ Export reports</a>
+    <span style="color:var(--body-quiet-color)"> — orders, sales and users as CSV or PDF.</span>
   </p>
 </div>
 {{ block.super }}
