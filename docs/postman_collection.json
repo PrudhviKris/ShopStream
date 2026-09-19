@@ -1,0 +1,1588 @@
+{
+  "info": {
+    "name": "Smart E-Commerce Platform API",
+    "description": "Generated from the OpenAPI schema by tools/generate_postman.py.\n\n1. Set `base_url` (default http://127.0.0.1:8000).\n2. Run **Authentication \u2192 Login**; it stores the tokens automatically.\n3. Every other request inherits Bearer auth from the collection.\n\nWebSockets can't be represented here: connect a WS client to {{base_url}}/ws/notifications?token={{access_token}}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/analytics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "analytics"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30",
+                  "description": "Size of the revenue/orders trend window.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Everything the analytics dashboard shows, in one call.\n\nRevenue counts only settled (succeeded) payments. Units sold and category\nsales exclude cancelled orders. All timestamps are UTC."
+          }
+        },
+        {
+          "name": "List Emails",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/emails",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "emails"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "200",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Every outgoing email and whether it was delivered."
+          }
+        },
+        {
+          "name": "Retry Failed Email",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/emails/{email_id}/retry",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "emails",
+                "{email_id}",
+                "retry"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "email_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Re-send an email that failed over SMTP."
+          }
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Matches name or email.",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "",
+                  "description": "Only active or only deactivated accounts.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Every account with its order count and lifetime spend.\n\nRead-only by design: roles are changed directly in MySQL\n(`UPDATE users SET role = 'staff' WHERE id = ...`)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Facebook Oauth Callback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/facebook/callback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "facebook",
+                "callback"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "state",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "error",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Facebook Oauth Callback"
+          }
+        },
+        {
+          "name": "Facebook Oauth Start",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/facebook/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "facebook",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "json",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Facebook Oauth Start"
+          }
+        },
+        {
+          "name": "Google Oauth Callback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/google/callback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "google",
+                "callback"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "state",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "error",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Google Oauth Callback"
+          }
+        },
+        {
+          "name": "Google Oauth Start",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/google/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "google",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "json",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Google Oauth Start"
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ada@example.com\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Save the tokens so every other request in this collection is authorised.",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', body.access_token);",
+                  "    pm.collectionVariables.set('refresh_token', body.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Revoke a refresh token (the access token simply expires).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Me"
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ada Lovelace\",\n  \"email\": \"ada@example.com\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Facebook Login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/social/facebook",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "social",
+                "facebook"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Facebook Login"
+          }
+        },
+        {
+          "name": "Google Token Login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/social/google",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "social",
+                "google"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Google Token Login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cart",
+      "item": [
+        {
+          "name": "View Cart",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/cart",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cart"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "View Cart"
+          }
+        },
+        {
+          "name": "Add To Cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/cart/add",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cart",
+                "add"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Add To Cart",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Remove From Cart",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/cart/remove/{product_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cart",
+                "remove",
+                "{product_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Remove From Cart"
+          }
+        },
+        {
+          "name": "Update Cart Item",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/cart/update",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cart",
+                "update"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Update Cart Item",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Checkout",
+      "item": [
+        {
+          "name": "Checkout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/checkout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "checkout"
+              ],
+              "query": [
+                {
+                  "key": "flow",
+                  "value": "session",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "payment_method",
+                  "value": "stripe",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Validate cart -> create order + payment record -> initialize payment.\n\npayment_method=stripe -> Stripe Checkout Session (flow=session, returns\n    checkout_url) or PaymentIntent (flow=intent, returns client_secret)\npayment_method=cash   -> cash on delivery; a CASH-... transaction id is\n    issued immediately and staff/admin confirm receipt on delivery via\n    POST /payments/cash/confirm/{order_id}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Development Email",
+      "item": [
+        {
+          "name": "List Development Emails",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/dev/emails",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "emails"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "False",
+                  "description": "Only emails not opened yet.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Your inbox: every email the store sent you, newest first.\n\nA copy of each email is always kept here, so this works even when your\naddress can't receive mail (a made-up address on a local account, or no\nmail server configured)."
+          }
+        },
+        {
+          "name": "Mark Emails Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/dev/emails/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "emails",
+                "read"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Mark emails as read: `{\"email_ids\": [4, 5]}`, or `{\"all\": true}` / an empty body for all.\n\nOnly your own emails are touched. Your other open tabs get an\n`emails_read` WebSocket event so their unread badge updates too.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"all\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Inbox Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/dev/emails/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "emails",
+                "summary"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Unread count for the inbox badge, and how mail to your address is delivered."
+          }
+        },
+        {
+          "name": "Get Development Email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/dev/emails/{email_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "emails",
+                "{email_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "email_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "One email sent to you. Reading it doesn't mark it read \u2014 use POST /dev/emails/read."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "My Invoices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "My Invoices"
+          }
+        },
+        {
+          "name": "All Invoices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/invoices/all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                "all"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Admin only: every customer's invoices."
+          }
+        },
+        {
+          "name": "Get Invoice",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/invoices/{invoice_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices",
+                "{invoice_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "invoice_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Get Invoice"
+          }
+        },
+        {
+          "name": "List Roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "roles"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Admin only: the platform's role definitions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "False",
+                  "description": "Only notifications not yet read.",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Only this kind of event.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "The signed-in user's notifications, newest first.\n\nTypes: `order_placed`, `order_confirmed`, `payment_successful`,\n`payment_failed`, `order_shipped`, `order_delivered`, `order_cancelled`."
+          }
+        },
+        {
+          "name": "Mark Notifications Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "read"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Mark notifications as read.\n\n* `{\"notification_ids\": [12, 13]}` \u2014 just those\n* `{\"all\": true}` or an empty body \u2014 every unread notification\n\nOnly ever touches the caller's own notifications; ids belonging to someone\nelse are ignored. Other open tabs get a `notifications_read` WebSocket\nevent so their unread badge updates too.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"all\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "unread-count"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Unread Count"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "My Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "My Orders"
+          }
+        },
+        {
+          "name": "All Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "all"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Staff/admin: every customer's orders, with customer identity."
+          }
+        },
+        {
+          "name": "Get Order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/{order_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "{order_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Get Order"
+          }
+        },
+        {
+          "name": "Delete Order",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/{order_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "{order_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Admin only: delete an order with its items, payment, and invoice.\nReserved stock is returned to products unless the order already shipped."
+          }
+        },
+        {
+          "name": "Update Order Status",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/{order_id}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "{order_id}",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "The new order status \u2014 pick one from the list. Which values are actually accepted depends on where the order is now:\n\n* **pending** \u2192 `cancelled` (to mark it paid, confirm the payment instead: POST /payments/confirm/{order_id})\n* **paid** \u2192 `shipped` or `cancelled`\n* **shipped** \u2192 `delivered` or `cancelled`\n* **delivered** / **cancelled** \u2192 final, nothing further\n\nGET /orders/{order_id}/status-options tells you the answer for one specific order.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Move an order along its lifecycle (staff/admin).\n\n`pending \u2192 paid \u2192 shipped \u2192 delivered`, and `cancelled` from any stage\nbefore delivery. An order never reaches **paid** here \u2014 that happens by\nconfirming its payment, which also settles the payment record and issues\nthe invoice."
+          }
+        },
+        {
+          "name": "Order Status Options",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/{order_id}/status-options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "{order_id}",
+                "status-options"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "What can I do with this order right now?\n\nAsk this before calling the status endpoint and you never have to guess:\nit returns the order's current status and exactly which values\n`PUT /orders/{order_id}/status` will accept for it, plus whether the\npayment can still be confirmed."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "All Payments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "all"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Admin only: every customer's payments."
+          }
+        },
+        {
+          "name": "Confirm Cash Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/cash/confirm/{order_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "cash",
+                "confirm",
+                "{order_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin confirm cash was received on delivery -> order paid + invoice.\n\nSame as POST /payments/confirm/{order_id} but refuses anything that isn't a\ncash-on-delivery payment, so the \"cash received\" action can't be used by\nmistake on a card order that hasn't actually been paid."
+          }
+        },
+        {
+          "name": "Confirm Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/confirm/{order_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "confirm",
+                "{order_id}"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "success",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin: confirm (or fail) an order's payment by order id.\n\nMarks the payment succeeded, moves the order to `paid`, issues the invoice\nand notifies the customer \u2014 the same path the Stripe webhook takes, so a\nmanually confirmed order ends up in exactly the same state as an\nautomatically confirmed one. Works for Stripe and cash alike."
+          }
+        },
+        {
+          "name": "Payment Receipt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/receipt",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "receipt"
+              ],
+              "query": [
+                {
+                  "key": "session_id",
+                  "value": "",
+                  "description": "Stripe checkout session id, as handed back on the success redirect.",
+                  "disabled": true
+                },
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": "Look the receipt up by order instead.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "The receipt for a completed checkout \u2014 what the success page renders.\n\nStripe redirects the shopper to {CHECKOUT_SUCCESS_URL}?session_id=... after\npayment; the page passes that straight here. Customers can only read their\nown receipts; staff and admin can read anyone's."
+          }
+        },
+        {
+          "name": "Stripe Webhook",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/webhook",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "webhook"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Stripe webhook: point your Stripe dashboard endpoint at POST /payments/webhook.\n\nHandles checkout.session.completed and payment_intent.succeeded/failed."
+          }
+        },
+        {
+          "name": "Payment For Order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/{order_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "{order_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Payment For Order"
+          }
+        },
+        {
+          "name": "Delete Payment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/payments/{payment_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "{payment_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "payment_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Admin only: delete a payment record. The order reverts to payment pending."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "min_price",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "max_price",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "in_stock",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "popularity",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "List Products"
+          }
+        },
+        {
+          "name": "Create Product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/products",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Create Product",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New product\",\n  \"description\": \"\",\n  \"category\": \"electronics\",\n  \"price\": 1999,\n  \"stock\": 10,\n  \"images\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Products By Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/category/{category}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "category",
+                "{category}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Products By Category"
+          }
+        },
+        {
+          "name": "Get Product",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Get Product"
+          }
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Update Product",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 1799,\n  \"stock\": 25\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Delete Product"
+          }
+        }
+      ]
+    }
+  ]
+}

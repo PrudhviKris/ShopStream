@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import BASE_DIR, settings
 from .database import Base, engine
@@ -21,6 +22,12 @@ from .routers import (
     orders,
     payments,
     products,
+)
+from .hardening import (
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    check_production_config,
+    configure_logging,
 )
 from .schema_upgrade import upgrade_schema
 from .services.notification_service import manager
@@ -42,6 +49,9 @@ class ApiPrefixMiddleware:
                 if raw:
                     scope["raw_path"] = raw[4:] or b"/"
         await self.app(scope, receive, send)
+
+configure_logging()
+check_production_config()   # fails fast rather than serving with dev secrets
 
 if settings.AUTO_CREATE_SCHEMA:
     # Development: make the database match the models on boot. With
@@ -114,6 +124,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(
+    RateLimitMiddleware,
+    paths=("/auth/login", "/auth/register", "/auth/refresh"),
+    limit=settings.AUTH_RATE_LIMIT,
+    window_seconds=settings.AUTH_RATE_WINDOW_SECONDS,
+)
+if settings.TRUSTED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
+# Outermost: strips the /api prefix before anything else matches on the path.
 app.add_middleware(ApiPrefixMiddleware)
 
 app.include_router(auth.router)

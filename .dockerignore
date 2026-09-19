@@ -1,0 +1,14 @@
+# Keep build context small and secrets out of images.
+**/.git
+**/venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+**/ecommerce.db
+frontend/dist
+fastapi_backend/media
+django_admin/staticfiles
+**/.pytest_cache

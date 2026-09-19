@@ -275,14 +275,43 @@ Note: a free-plan ngrok URL changes on every restart (visitors also see a one-ti
 interstitial page); reserve a static domain in the ngrok dashboard to keep OAuth
 origins stable.
 
+## Deployment, migrations and API collection
+
+- **Docker:** `cp .env.docker.example .env && docker compose up --build` brings up
+  MySQL, the API/storefront (8000) and the Django admin (8001). See
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the production checklist, TLS settings
+  and scaling notes.
+- **Migrations:** the store schema is managed by Alembic in `fastapi_backend/`:
+  `alembic upgrade head` applies it, `alembic revision --autogenerate -m "..."` writes a
+  new one, `alembic check` reports drift. In containers `AUTO_CREATE_SCHEMA=false`, so
+  migrations are the only thing that changes the schema. Django's `manage.py migrate`
+  still creates its own auth/session tables.
+- **Postman:** [docs/postman_collection.json](docs/postman_collection.json) — 51 requests
+  in 11 folders, generated from the OpenAPI schema by
+  `python tools/generate_postman.py`. Import it, set `base_url`, run
+  **Authentication → Login** and the tokens are stored for every other request.
+- **Demo script:** [docs/DEMO.md](docs/DEMO.md) — a 6–8 minute walkthrough with the
+  screenshots worth capturing.
+- **Hardening:** with `APP_ENV=production` the API refuses to boot on development
+  secrets, wildcard CORS, SQLite or auto-created tables; responses carry
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and (behind TLS)
+  HSTS; `/auth/login`, `/auth/register` and `/auth/refresh` are rate-limited per IP.
+
 ## Testing
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
-- `fastapi_backend/smoke_test.py` — 190 end-to-end checks (auth, role promotion via direct
+- `fastapi_backend/smoke_test.py` — 228 end-to-end checks (auth, role promotion via direct
   MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, notification
   types and `POST /notifications/read`, WebSocket `order_status_updated` / `cart_updated`
   events, emails on both backends including SMTP failure and retry, admin analytics/users/
-  email APIs) against the configured database: `python smoke_test.py`. It registers its own
+  email APIs, the user inbox, account deactivation, security headers, the auth rate
+  limit and the production config guard) against the configured database:
+  `python smoke_test.py`. It restores stock, popularity and the display-number
+  counters afterwards, so it leaves the database exactly as it found it.
+
+- `django_admin`: `python manage.py test analytics` — 46 tests covering the admin
+  screens (users, products with image upload, orders), the Chart.js dashboard, the
+  CSV/PDF exports and the PDF writer itself. It registers its own
   throwaway users and deletes them again when it finishes, so it never leaves demo data
   behind.

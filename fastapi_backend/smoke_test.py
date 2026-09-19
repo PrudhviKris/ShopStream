@@ -22,6 +22,9 @@ os.environ["STRIPE_WEBHOOK_SECRET"] = ""
 # Keep email in the database inbox: the suite must never send real mail either.
 os.environ["EMAIL_BACKEND"] = "database"
 os.environ["EMAIL_ENABLED"] = "true"
+# The suite registers and logs in far more often than a person would; the
+# limiter is exercised directly further down instead.
+os.environ["AUTH_RATE_LIMIT"] = "1000"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -734,6 +737,57 @@ try:
           client.post("/auth/login",
                       json={"email": f"smoke-off-{RUN_ID}@example.com", "password": "SmokePass123!"}
                       ).status_code == 200)
+
+    # ---- Production hardening ----
+    r = client.get("/health")
+    check("security headers on every response",
+          r.headers.get("x-content-type-options") == "nosniff"
+          and r.headers.get("x-frame-options") == "DENY"
+          and r.headers.get("referrer-policy") == "same-origin", str(dict(r.headers)))
+
+    from fastapi import FastAPI as _FastAPI
+    from app.hardening import RateLimitMiddleware as _RateLimit, check_production_config as _check_prod
+
+    _limited = _FastAPI()
+    _limited.add_middleware(_RateLimit, paths=("/auth/login",), limit=3, window_seconds=60)
+
+    @_limited.post("/auth/login")
+    def _fake_login():
+        return {"ok": True}
+
+    @_limited.post("/auth/other")
+    def _other():
+        return {"ok": True}
+
+    with TestClient(_limited) as _c:
+        codes = [_c.post("/auth/login", json={}).status_code for _ in range(4)]
+        check("auth endpoints rate-limit repeated attempts",
+              codes[:3] == [200, 200, 200] and codes[3] == 429, str(codes))
+        blocked = _c.post("/auth/login", json={})
+        check("the 429 says when to retry", blocked.headers.get("retry-after", "").isdigit()
+              and "Try again" in blocked.json()["detail"], blocked.text)
+        check("other endpoints are unaffected", _c.post("/auth/other", json={}).status_code == 200)
+
+    # The production guard refuses dev secrets rather than serving with them.
+    from unittest.mock import patch as _hp
+    with _hp.object(settings, "APP_ENV", "production"), _hp.object(settings, "AUTO_CREATE_SCHEMA", False):
+        with _hp.object(settings, "JWT_SECRET_KEY", "dev-only-insecure-secret-change-me-in-production-0123456789"):
+            try:
+                _check_prod()
+                check("production refuses the default JWT secret", False, "it started anyway")
+            except RuntimeError as exc:
+                check("production refuses the default JWT secret", "JWT_SECRET_KEY" in str(exc), str(exc))
+        with _hp.object(settings, "CORS_ORIGINS", ["*"]):
+            try:
+                _check_prod()
+                check("production refuses wildcard CORS", False, "it started anyway")
+            except RuntimeError as exc:
+                check("production refuses wildcard CORS", "CORS_ORIGINS" in str(exc), str(exc))
+        try:
+            _check_prod()
+            check("a correctly configured production start is allowed", True)
+        except RuntimeError as exc:
+            check("a correctly configured production start is allowed", False, str(exc))
 
     # ---- Admin panel APIs ----
     r = client.get("/admin/analytics", headers=admin_auth)

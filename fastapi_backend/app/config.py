@@ -123,6 +123,25 @@ class Settings:
     SMTP_SEND_TO_LOCAL_ACCOUNTS = os.getenv("SMTP_SEND_TO_LOCAL_ACCOUNTS", "false").lower() == "true"
     EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@ecommerce.local")
 
+    # Runtime environment. APP_ENV=production turns on the startup config
+    # checks (real secrets, explicit CORS, MySQL, migrations-only schema)
+    # and the HSTS header.
+    APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    # Only trust X-Forwarded-* when something in front really sets them.
+    TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+    HSTS_SECONDS = int(os.getenv("HSTS_SECONDS", "0"))  # set once HTTPS is certain
+    # Hostnames the API answers to; empty means any (fine behind a proxy that
+    # already filters, risky when exposed directly).
+    TRUSTED_HOSTS = [h.strip() for h in os.getenv("TRUSTED_HOSTS", "").split(",") if h.strip()]
+    # Auth endpoints: attempts per IP per window.
+    AUTH_RATE_LIMIT = int(os.getenv("AUTH_RATE_LIMIT", "10"))
+    AUTH_RATE_WINDOW_SECONDS = int(os.getenv("AUTH_RATE_WINDOW_SECONDS", "60"))
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV == "production"
+
     # Schema management
     # Dev convenience: create missing tables/columns at startup. Production
     # runs `alembic upgrade head` in the release step instead, so set this
