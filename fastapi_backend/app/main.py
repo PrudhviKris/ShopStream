@@ -1,5 +1,7 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -167,6 +169,13 @@ def _no_such_endpoint(method: str, full_path: str) -> HTTPException:
         ),
     )
 
+
+# Product images uploaded through the Django admin (MEDIA_ROOT there points
+# here). Mounted before the SPA catch-all so /media/... never falls through to
+# the storefront's HTML shell.
+MEDIA_DIR = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():

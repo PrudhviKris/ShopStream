@@ -72,6 +72,29 @@ def receive_until(ws, predicate, limit=8):
     return None, seen
 
 
+def in_stock_product(quantity=1):
+    """An id of a product with at least `quantity` in stock.
+
+    The suite must not assume a particular product still has stock — the real
+    catalogue moves as people buy things.
+    """
+    items = client.get("/products", params={"in_stock": True, "page_size": 50}).json()["items"]
+    for item in items:
+        if item["stock"] >= quantity:
+            return item["id"]
+    raise RuntimeError(f"No catalogue product has {quantity} unit(s) in stock — cannot run the suite.")
+
+
+def set_active_in_mysql(user_id: int, active: bool) -> None:
+    """What the Django admin's activate/deactivate action does:
+    UPDATE users SET is_active = 0/1 WHERE id = <user_id>;
+    """
+    with SessionLocal() as db:
+        db.execute(text("UPDATE users SET is_active = :a WHERE id = :id"),
+                   {"a": 1 if active else 0, "id": user_id})
+        db.commit()
+
+
 def set_role_in_mysql(user_id: int, role: str) -> None:
     """Exactly what a human operator runs by hand to promote/demote a user:
     UPDATE users SET role = '<role>' WHERE id = <user_id>;
@@ -98,6 +121,31 @@ def restore_sequences(before: dict):
         after = dict(db.execute(text("SELECT name, value FROM sequences")).fetchall())
         for name in set(after) - set(before):
             db.execute(text("DELETE FROM sequences WHERE name = :n"), {"n": name})
+        db.commit()
+
+
+def snapshot_products():
+    """Stock and popularity before this run.
+
+    Checking out decrements stock and bumps popularity, and deleting the test
+    order afterwards does NOT put them back — so without this every run
+    quietly drained the real catalogue (it took Mechanical Keyboard from 60
+    to 0 before this was caught).
+    """
+    with SessionLocal() as db:
+        return {
+            row[0]: (row[1], row[2])
+            for row in db.execute(text("SELECT id, stock, popularity FROM products"))
+        }
+
+
+def restore_products(before: dict):
+    with SessionLocal() as db:
+        for product_id, (stock, popularity) in before.items():
+            db.execute(
+                text("UPDATE products SET stock = :s, popularity = :p WHERE id = :id"),
+                {"s": stock, "p": popularity, "id": product_id},
+            )
         db.commit()
 
 
@@ -134,6 +182,7 @@ ADMIN2_EMAIL = f"smoke-admin2-{RUN_ID}@example.com"
 STAFF2_EMAIL = f"smoke-staff2-{RUN_ID}@example.com"
 
 sequences_before = snapshot_sequences()
+products_before = snapshot_products()
 
 try:
     # ---- Auth: register -> always customer; login; refresh rotation; logout ----
@@ -286,6 +335,13 @@ try:
     check("stock decremented", client.get("/products/1").json()["stock"] == stock_before - 3)
     check("checkout with empty cart rejected", client.post("/checkout", headers=auth).status_code == 400)
 
+    # Product 1 is now on this run's order: deleting it would break order
+    # history, and order_items would refuse on the foreign key anyway.
+    r = client.delete("/products/1", headers=admin_auth)
+    check("deleting a product that appears on an order is refused with an explanation",
+          r.status_code == 409 and "stock to 0" in r.json()["detail"], r.text)
+    check("that product is still in the catalog", client.get("/products/1").status_code == 200)
+
     r = client.get(f"/orders/{order_id}", headers=auth)
     order = r.json()
     check("order created", r.status_code == 200 and order["order_status"] == "pending" and order["total"] == co["amount"])
@@ -352,7 +408,7 @@ try:
             "sk_test_fake",
         )
 
-    r = client.post("/cart/add", json={"product_id": 2, "quantity": 1}, headers=auth)
+    r = client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
     r = client.post("/checkout", headers=auth)
     webhook_order_id = r.json()["order_id"]
     real_txn_id = r.json()["transaction_id"]
@@ -654,6 +710,31 @@ try:
     check("only the opted-in and google emails reached SMTP", len(smtp_calls) == 2, str(len(smtp_calls)))
     client.delete(f"/orders/{inbox_order_id}", headers=admin_auth)  # returns the reserved stock
 
+    # ---- Deactivating an account (admin panel) locks it out immediately ----
+    off_tokens, off_auth, off_id = register(f"smoke-off-{RUN_ID}@example.com", "Smoke Deactivated")
+    check("a new account is active", client.get("/auth/me", headers=off_auth).json()["is_active"] is True)
+    set_active_in_mysql(off_id, False)
+    r = client.get("/auth/me", headers=off_auth)
+    check("a token issued before deactivation stops working on the next request",
+          r.status_code == 403 and "deactivated" in r.json()["detail"], r.text)
+    r = client.post("/auth/login", json={"email": f"smoke-off-{RUN_ID}@example.com", "password": "SmokePass123!"})
+    check("a deactivated user cannot log in", r.status_code == 403 and "deactivated" in r.json()["detail"], r.text)
+    r = client.post("/auth/refresh", json={"refresh_token": off_tokens["refresh_token"]})
+    check("a deactivated user cannot refresh their token", r.status_code == 403, r.text)
+    check("shopping is blocked too",
+          client.get("/cart", headers=off_auth).status_code == 403
+          and client.post("/checkout", headers=off_auth).status_code == 403)
+    r = client.get("/admin/users", params={"is_active": False}, headers=admin_auth)
+    check("admins can list deactivated accounts",
+          r.status_code == 200 and any(u["id"] == off_id and u["is_active"] is False for u in r.json()), r.text)
+    set_active_in_mysql(off_id, True)
+    check("reactivating restores access immediately",
+          client.get("/auth/me", headers=off_auth).status_code == 200)
+    check("and login works again",
+          client.post("/auth/login",
+                      json={"email": f"smoke-off-{RUN_ID}@example.com", "password": "SmokePass123!"}
+                      ).status_code == 200)
+
     # ---- Admin panel APIs ----
     r = client.get("/admin/analytics", headers=admin_auth)
     stats = r.json()
@@ -722,7 +803,7 @@ try:
     check("customer denied /roles", client.get("/roles", headers=auth).status_code == 403)
 
     # ---- Admin can shop and buy like anyone ----
-    r = client.post("/cart/add", json={"product_id": 2, "quantity": 1}, headers=admin_auth)
+    r = client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=admin_auth)
     check("admin can add to cart", r.status_code == 201, r.text)
     r = client.post("/checkout", headers=admin_auth)
     check("admin can checkout", r.status_code == 200, r.text)
@@ -930,5 +1011,6 @@ try:
 finally:
     cleanup(created_user_ids)
     restore_sequences(sequences_before)
+    restore_products(products_before)
     print(f"Cleaned up {len(created_user_ids)} smoke-test user(s) and their data — MySQL left as it was, "
-          f"including order/invoice/customer sequence counters.")
+          f"including order/invoice/customer sequence counters and every product's stock and popularity.")

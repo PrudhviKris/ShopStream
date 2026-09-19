@@ -12,6 +12,9 @@ from sqlalchemy.engine import Engine
 
 # table -> [(column, DDL type)] — kept in step with app/models.py
 ADDED_COLUMNS = {
+    "users": [
+        ("is_active", "BOOLEAN NOT NULL DEFAULT 1"),
+    ],
     "notifications": [
         ("order_id", "INTEGER NULL"),
     ],

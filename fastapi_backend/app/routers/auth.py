@@ -51,8 +51,19 @@ def issue_tokens(db: Session, user: User) -> TokenPair:
     )
 
 
+def _require_active(user: User) -> None:
+    """Deactivated accounts can't get new tokens, whichever way they log in."""
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been deactivated. Contact the store administrator.",
+        )
+
+
 def _get_or_create_social_user(db: Session, email: str, name: str, provider: str) -> User:
     user = db.query(User).filter(User.email == email.lower()).first()
+    if user is not None:
+        _require_active(user)
     if user is None:
         user = User(
             name=name or email.split("@")[0],
@@ -92,6 +103,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email.lower()).first()
     if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    _require_active(user)
     return issue_tokens(db, user)
 
 
@@ -108,6 +120,7 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     user = db.get(User, int(payload["sub"]))
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
+    _require_active(user)
 
     record.revoked = True  # rotation: each refresh token is single-use
     db.commit()

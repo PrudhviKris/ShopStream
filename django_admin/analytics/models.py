@@ -1,7 +1,12 @@
 """Read/write access to the store tables owned by the FastAPI service.
 
 managed = False -> Django never creates or migrates these tables.
+
+`created_at` columns carry a default so rows added through the admin match
+what the FastAPI service writes (naive UTC, since USE_TZ is off).
 """
+from datetime import datetime
+
 from django.db import models
 
 
@@ -13,7 +18,12 @@ class StoreUser(models.Model):
     password_hash = models.CharField(max_length=255, null=True, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="customer")
     auth_provider = models.CharField(max_length=50, default="local")
-    created_at = models.DateTimeField()
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="active",
+        help_text="Deactivated users keep their history but cannot log in, and any token they hold stops working.",
+    )
+    created_at = models.DateTimeField(default=datetime.utcnow)
     customer_number = models.IntegerField(null=True, blank=True, unique=True)
 
     class Meta:
@@ -33,7 +43,7 @@ class Product(models.Model):
     stock = models.IntegerField()
     images = models.JSONField(default=list, blank=True)  # empty photo list is valid
     popularity = models.IntegerField(default=0)
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=datetime.utcnow)
 
     class Meta:
         managed = False
@@ -66,7 +76,7 @@ class Order(models.Model):
     total = models.FloatField()
     payment_status = models.CharField(max_length=20)
     order_status = models.CharField(max_length=20, choices=STATUS_CHOICES)
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=datetime.utcnow)
 
     class Meta:
         managed = False
@@ -129,7 +139,7 @@ class Payment(models.Model):
     payment_method = models.CharField(max_length=50)
     transaction_id = models.CharField(max_length=255, null=True)
     status = models.CharField(max_length=20)
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=datetime.utcnow)
     updated_at = models.DateTimeField(null=True)
 
     class Meta:
@@ -161,7 +171,7 @@ class Notification(models.Model):
     title = models.CharField(max_length=200)
     message = models.TextField(blank=True)
     is_read = models.BooleanField(default=False, verbose_name="read")
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=datetime.utcnow)
     order_id = models.IntegerField(null=True, blank=True)
 
     class Meta:
@@ -196,7 +206,7 @@ class Email(models.Model):
     error = models.TextField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_read = models.BooleanField(default=False, verbose_name="read by recipient")
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=datetime.utcnow)
 
     class Meta:
         managed = False

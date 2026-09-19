@@ -1,9 +1,11 @@
 from datetime import datetime
 
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db import transaction
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 
+from .forms import ProductAdminForm
 from .models import (
     Email,
     Invoice,
@@ -17,20 +19,105 @@ from .models import (
 )
 
 
+def _image_src(url: str) -> str:
+    """Product images are stored as site-relative URLs (/media/... or /static/...)
+    that the storefront serves; the admin runs on a different port, so point
+    previews at the storefront's host."""
+    if url.startswith("/"):
+        return f"{settings.STORE_PUBLIC_URL}{url}"
+    return url
+
+
+# ---------- Users ----------
+
+@admin.action(description="Activate selected users")
+def activate_users(modeladmin, request, queryset):
+    updated = queryset.update(is_active=True)
+    modeladmin.message_user(request, f"{updated} user(s) activated.", messages.SUCCESS)
+
+
+@admin.action(description="Deactivate selected users (blocks login immediately)")
+def deactivate_users(modeladmin, request, queryset):
+    # Locking every admin out of the store would leave nobody able to undo it
+    # from the storefront side, so keep at least one active admin.
+    remaining_admins = (
+        StoreUser.objects.filter(role="admin", is_active=True).exclude(pk__in=queryset).count()
+    )
+    if remaining_admins == 0 and queryset.filter(role="admin", is_active=True).exists():
+        modeladmin.message_user(
+            request,
+            "That would deactivate the last active admin. Promote or activate another admin first.",
+            messages.ERROR,
+        )
+        return
+    updated = queryset.update(is_active=False)
+    modeladmin.message_user(
+        request,
+        f"{updated} user(s) deactivated. They can no longer log in, and tokens they already "
+        "hold stop working on their next request.",
+        messages.WARNING,
+    )
+
+
 @admin.register(StoreUser)
 class StoreUserAdmin(admin.ModelAdmin):
-    list_display = ("id", "customer_number", "name", "email", "role", "auth_provider", "created_at")
-    list_filter = ("role", "auth_provider")
-    search_fields = ("name", "email")
-    readonly_fields = ("password_hash", "created_at", "customer_number")
+    """View, edit, assign roles to, and activate/deactivate store users.
 
+    The role column is the same one the API reads on every request, so a change
+    here applies immediately — the user doesn't need to log in again.
+    """
+
+    list_display = ("id", "customer_number", "name", "email", "role", "is_active",
+                    "auth_provider", "orders", "created_at")
+    list_display_links = ("id", "name")
+    list_editable = ("role", "is_active")
+    list_filter = ("role", "is_active", "auth_provider")
+    search_fields = ("name", "email")
+    readonly_fields = ("password_hash", "created_at", "customer_number", "auth_provider", "orders")
+    actions = [activate_users, deactivate_users]
+    fieldsets = (
+        ("Account", {"fields": ("name", "email", "customer_number", "auth_provider", "created_at")}),
+        ("Access", {
+            "fields": ("role", "is_active"),
+            "description": "Roles: <b>admin</b> can do everything · <b>staff</b> manage products and "
+                           "orders · <b>customer</b> can shop. Deactivated users keep their history "
+                           "but cannot log in.",
+        }),
+        ("Credentials", {"fields": ("password_hash",), "classes": ("collapse",)}),
+    )
+
+    @admin.display(description="Orders")
+    def orders(self, user):
+        return user.order_set.count() if hasattr(user, "order_set") else Order.objects.filter(user=user).count()
+
+    def has_delete_permission(self, request, obj=None):
+        # Deleting a user would orphan their orders, payments and invoices;
+        # deactivate instead.
+        return False
+
+
+# ---------- Products ----------
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "category", "price", "stock", "stock_state", "popularity")
+    """Add, edit and delete products, update stock, and upload images."""
+
+    form = ProductAdminForm
+    list_display = ("id", "thumbnail", "name", "category", "price", "stock", "stock_state", "popularity")
+    list_display_links = ("id", "name")
     list_filter = ("category",)
-    search_fields = ("name",)
+    search_fields = ("name", "description")
     list_editable = ("price", "stock")
+    readonly_fields = ("popularity", "created_at", "image_gallery", "delete_state")
+    fieldsets = (
+        (None, {"fields": ("name", "description", "category")}),
+        ("Pricing & stock", {"fields": ("price", "stock", "popularity")}),
+        ("Images", {
+            "fields": ("upload_image", "image_gallery", "images"),
+            "description": "Upload a file, or edit the JSON list directly to use external URLs.",
+        }),
+        ("Meta", {"fields": ("created_at", "delete_state"), "classes": ("collapse",)}),
+    )
 
     @admin.display(description="Stock state")
     def stock_state(self, product):
@@ -40,12 +127,75 @@ class ProductAdmin(admin.ModelAdmin):
             return f"⚠ Low ({product.stock})"
         return "✓ In stock"
 
+    @admin.display(description="")
+    def thumbnail(self, product):
+        images = product.images or []
+        if not images:
+            return "—"
+        return format_html(
+            '<img src="{}" alt="" style="height:38px;width:38px;object-fit:cover;border-radius:6px">',
+            _image_src(images[0]),
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        # A product that appears on an order can't be deleted: order_items
+        # references it, so the database would refuse with a foreign-key error
+        # (and deleting it would rewrite order history). Retire it by setting
+        # its stock to 0. Django applies this per object, so a bulk delete
+        # that includes one is refused too.
+        if obj is not None and OrderItem.objects.filter(product_id=obj.pk).exists():
+            return False
+        return super().has_delete_permission(request, obj)
+
+    @admin.display(description="Deletable")
+    def delete_state(self, product):
+        if product.pk is None:
+            return "—"
+        ordered = OrderItem.objects.filter(product_id=product.pk).count()
+        if ordered:
+            return (f"No — on {ordered} order line(s). Deleting would rewrite order history; "
+                    "set stock to 0 to retire it instead.")
+        return "Yes — never ordered."
+
+    @admin.display(description="Current images")
+    def image_gallery(self, product):
+        images = product.images or []
+        if not images:
+            return "No images yet."
+        return format_html(
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">{}</div>',
+            format_html_join(
+                "",
+                '<img src="{}" alt="" title="{}" style="height:90px;border-radius:8px;'
+                'border:1px solid var(--hairline-color)">',
+                ((_image_src(url), url) for url in images),
+            ),
+        )
+
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
     can_delete = False
     readonly_fields = ("product", "product_name", "unit_price", "quantity")
+
+
+class PaymentInline(admin.TabularInline):
+    """The order's payment, read-only: amount, method, transaction id, status.
+
+    Payments settle through Stripe's webhook or a staff confirmation, so they
+    are never edited by hand here.
+    """
+
+    model = Payment
+    extra = 0
+    can_delete = False
+    verbose_name_plural = "Payment"
+    fields = ("amount", "currency", "payment_method", "transaction_id", "status", "created_at", "updated_at")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 # ---------- Order status actions ----------
@@ -109,15 +259,27 @@ def mark_cancelled(modeladmin, request, queryset):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "order_number", "user", "total", "payment_status", "order_status", "created_at")
+    list_display = ("id", "order_number", "user", "total", "payment_status", "payment_method",
+                    "order_status", "next_statuses", "created_at")
+    list_display_links = ("id", "order_number")
     list_filter = ("order_status", "payment_status")
     search_fields = ("user__name", "user__email", "order_number")
-    inlines = [OrderItemInline]
+    inlines = [OrderItemInline, PaymentInline]
     actions = [mark_shipped, mark_delivered, mark_cancelled]
     # Status is changed only through the actions above (which enforce the
     # allowed transitions); payment status only by confirming the payment.
     readonly_fields = ("order_number", "subtotal", "tax", "total", "payment_status", "order_status", "created_at")
     date_hierarchy = "created_at"
+
+    @admin.display(description="Paid with")
+    def payment_method(self, order):
+        payment = order.payment_set.first()
+        return payment.payment_method if payment else "—"
+
+    @admin.display(description="Can move to")
+    def next_statuses(self, order):
+        allowed = order.TRANSITIONS.get(order.order_status, [])
+        return ", ".join(allowed) if allowed else "final"
 
 
 @admin.register(Payment)

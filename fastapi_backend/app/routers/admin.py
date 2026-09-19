@@ -183,6 +183,7 @@ def list_users(
     _admin: User = Depends(require_admin),
     role: Optional[UserRole] = Query(default=None),
     search: Optional[str] = Query(default=None, description="Matches name or email."),
+    is_active: Optional[bool] = Query(default=None, description="Only active or only deactivated accounts."),
 ):
     """Every account with its order count and lifetime spend.
 
@@ -192,6 +193,8 @@ def list_users(
     query = db.query(User)
     if role is not None:
         query = query.filter(User.role == role)
+    if is_active is not None:
+        query = query.filter(User.is_active.is_(is_active))
     if search:
         like = f"%{search.strip()}%"
         query = query.filter((User.name.ilike(like)) | (User.email.ilike(like)))
@@ -218,6 +221,7 @@ def list_users(
             email=u.email,
             role=u.role,
             auth_provider=u.auth_provider or "local",
+            is_active=u.is_active,
             created_at=u.created_at,
             orders=stats.get(u.id, (0, None))[0],
             last_order_at=stats.get(u.id, (0, None))[1],

@@ -47,6 +47,7 @@ class UserOut(BaseModel):
     email: EmailStr
     role: UserRole
     auth_provider: str
+    is_active: bool = True
     created_at: datetime
 
 
@@ -322,6 +323,7 @@ class AdminUserOut(BaseModel):
     email: str
     role: UserRole
     auth_provider: str
+    is_active: bool
     created_at: datetime
     orders: int
     total_spent: float

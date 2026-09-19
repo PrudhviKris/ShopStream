@@ -30,6 +30,13 @@ def get_current_user(
     user = db.get(User, int(payload["sub"]))
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # Checked on every request, not just at login: deactivating an account
+    # takes effect immediately, even for a token issued moments earlier.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been deactivated. Contact the store administrator.",
+        )
     return user
 
 

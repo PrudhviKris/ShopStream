@@ -1,9 +1,13 @@
 """Tests for the Django admin panel and analytics over the shared store schema."""
 import json
+import shutil
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from django.contrib.auth.models import User as AdminUser
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Email, Invoice, Notification, Order, OrderItem, Payment, Product, Role, StoreUser
@@ -157,6 +161,150 @@ class AdminSiteTests(TestCase):
         self.assertEqual(product.stock, 7)
 
 
+class UserManagementTests(TestCase):
+    """Admins view, edit, re-role and deactivate store users."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.customer, cls.store_admin, _, _, _ = make_store_data()
+        cls.superuser = AdminUser.objects.create_superuser("django-admin", "dj@test.com", "AdminTestPass123!")
+
+    def setUp(self):
+        self.client.force_login(self.superuser)
+
+    def test_user_list_shows_role_and_active_state(self):
+        response = self.client.get(reverse("admin:analytics_storeuser_changelist"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "cust@test.com")
+        self.assertContains(response, "customer")
+
+    def test_edit_user_details_and_assign_role(self):
+        url = reverse("admin:analytics_storeuser_change", args=[self.customer.pk])
+        form = self.client.get(url).context["adminform"].form.initial
+        response = self.client.post(url, {**form, "name": "Renamed Customer",
+                                          "email": "cust@test.com", "role": "staff", "is_active": "on"})
+        if response.status_code == 200:
+            self.fail(f"admin form errors: {response.context['adminform'].form.errors.as_json()}")
+        self.customer.refresh_from_db()
+        self.assertEqual((self.customer.name, self.customer.role), ("Renamed Customer", "staff"))
+
+    def test_deactivate_and_activate_actions(self):
+        url = reverse("admin:analytics_storeuser_changelist")
+        self.client.post(url, {"action": "deactivate_users", "_selected_action": [self.customer.pk]})
+        self.customer.refresh_from_db()
+        self.assertFalse(self.customer.is_active)
+
+        self.client.post(url, {"action": "activate_users", "_selected_action": [self.customer.pk]})
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.is_active)
+
+    def test_last_active_admin_cannot_be_deactivated(self):
+        response = self.client.post(
+            reverse("admin:analytics_storeuser_changelist"),
+            {"action": "deactivate_users", "_selected_action": [self.store_admin.pk]},
+            follow=True,
+        )
+        self.store_admin.refresh_from_db()
+        self.assertTrue(self.store_admin.is_active)
+        self.assertContains(response, "last active admin")
+
+    def test_users_cannot_be_deleted(self):
+        response = self.client.get(reverse("admin:analytics_storeuser_delete", args=[self.customer.pk]))
+        self.assertEqual(response.status_code, 403)
+
+
+class ProductManagementTests(TestCase):
+    """Add, edit, delete products and upload images."""
+
+    @classmethod
+    def setUpTestData(cls):
+        make_store_data()
+        cls.superuser = AdminUser.objects.create_superuser("django-admin", "dj@test.com", "AdminTestPass123!")
+
+    def setUp(self):
+        self.client.force_login(self.superuser)
+        self.media = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.media, ignore_errors=True)
+
+    def _post_product(self, url, **overrides):
+        data = {"name": "Uploaded Widget", "description": "", "category": "gadgets",
+                "price": "10.0", "stock": "3", "images": "[]"}
+        data.update(overrides)
+        with override_settings(MEDIA_ROOT=self.media):
+            return self.client.post(url, data)
+
+    def test_add_product(self):
+        response = self._post_product(reverse("admin:analytics_product_add"))
+        if response.status_code == 200:
+            self.fail(f"admin form errors: {response.context['adminform'].form.errors.as_json()}")
+        self.assertEqual(response.status_code, 302)
+        added = Product.objects.get(name="Uploaded Widget")
+        self.assertEqual((added.stock, added.popularity), (3, 0))
+        self.assertIsNotNone(added.created_at)  # defaulted, not posted
+
+    def test_upload_image_is_stored_and_added_to_the_product(self):
+        png = SimpleUploadedFile("photo.png", b"\x89PNG\r\n\x1a\n fake", content_type="image/png")
+        product = Product.objects.get(name="Test Widget")
+        response = self._post_product(
+            reverse("admin:analytics_product_change", args=[product.pk]),
+            name="Test Widget", upload_image=png,
+        )
+        self.assertEqual(response.status_code, 302)
+        product.refresh_from_db()
+        self.assertEqual(len(product.images), 1)
+        url = product.images[0]
+        self.assertTrue(url.startswith("/media/products/"), url)
+        self.assertNotIn("photo.png", url)  # name is randomised, never the upload's own
+        self.assertTrue((Path(self.media) / "products" / Path(url).name).exists())
+
+    def test_non_image_upload_is_rejected(self):
+        product = Product.objects.get(name="Test Widget")
+        bad = SimpleUploadedFile("payload.exe", b"MZ", content_type="application/octet-stream")
+        response = self._post_product(
+            reverse("admin:analytics_product_change", args=[product.pk]),
+            name="Test Widget", upload_image=bad,
+        )
+        self.assertEqual(response.status_code, 200)  # form redisplayed with the error
+        self.assertContains(response, "isn&#x27;t an image type this store accepts")
+        product.refresh_from_db()
+        self.assertEqual(product.images, [])
+
+    def test_update_stock(self):
+        product = Product.objects.get(name="Test Widget")
+        self._post_product(reverse("admin:analytics_product_change", args=[product.pk]),
+                           name="Test Widget", stock="42")
+        product.refresh_from_db()
+        self.assertEqual(product.stock, 42)
+
+    def test_delete_product_that_was_never_ordered(self):
+        product = Product.objects.get(name="Sold Out Thing")  # no order items
+        response = self.client.post(
+            reverse("admin:analytics_product_delete", args=[product.pk]), {"post": "yes"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Product.objects.filter(pk=product.pk).exists())
+
+    def test_a_product_on_an_order_cannot_be_deleted(self):
+        # order_items references it; deleting would fail on the foreign key,
+        # so the admin refuses up front instead of raising a database error.
+        product = Product.objects.get(name="Test Widget")
+        self.assertEqual(
+            self.client.get(reverse("admin:analytics_product_delete", args=[product.pk])).status_code, 403
+        )
+        # a bulk delete including it is refused for the same reason
+        response = self.client.post(
+            reverse("admin:analytics_product_changelist"),
+            {"action": "delete_selected", "_selected_action": [product.pk], "post": "yes"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Product.objects.filter(pk=product.pk).exists())
+        # the change form explains why the delete button is missing
+        change = self.client.get(reverse("admin:analytics_product_change", args=[product.pk]))
+        self.assertContains(change, "set stock to 0 to retire it instead")
+
+
 class NotificationAndEmailAdminTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -239,6 +387,13 @@ class OrderActionTests(TestCase):
     def test_status_is_not_editable_in_the_form(self):
         response = self.client.get(reverse("admin:analytics_order_change", args=[self.paid_order.pk]))
         self.assertNotContains(response, 'name="order_status"')
+
+    def test_order_page_shows_payment_and_allowed_transitions(self):
+        response = self.client.get(reverse("admin:analytics_order_change", args=[self.paid_order.pk]))
+        self.assertContains(response, "mock_tx_1")        # the payment inline
+        self.assertContains(response, "stripe-mock")
+        listing = self.client.get(reverse("admin:analytics_order_changelist"))
+        self.assertContains(listing, "shipped, cancelled")  # "Can move to" column
 
 
 class AnalyticsDashboardTests(TestCase):

@@ -65,6 +65,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=True)  # null for social-login users
     role = Column(Enum(UserRole), default=UserRole.customer, nullable=False)
     auth_provider = Column(String(50), default="local")  # local / google / facebook
+    # Deactivated accounts keep their orders and history but can't log in, and
+    # any token they already hold stops working on the next request.
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     # Friendly, gapless "Customer #N" for display — distinct from id (the real
     # primary key, which JWTs and every foreign key reference and must never

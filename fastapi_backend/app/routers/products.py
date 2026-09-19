@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require_staff_or_admin
-from ..models import Product, User
+from ..models import OrderItem, Product, User
 from ..schemas import ProductCreate, ProductList, ProductOut, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -129,5 +129,17 @@ def delete_product(
     product = db.get(Product, product_id)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
+    # Orders snapshot the product's name and price but still reference the
+    # product row, so deleting one that has been bought fails on the foreign
+    # key (a 500). Say so instead, and point at the way to retire it.
+    ordered = db.query(OrderItem).filter(OrderItem.product_id == product_id).count()
+    if ordered:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{product.name}' appears on {ordered} order line(s) and can't be deleted "
+                "without losing that order history. Set its stock to 0 to retire it instead."
+            ),
+        )
     db.delete(product)
     db.commit()

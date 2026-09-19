@@ -106,7 +106,16 @@ USE_I18N = True
 USE_TZ = False  # store timestamps are naive UTC (matches FastAPI)
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` target for production
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Product images uploaded through the admin. They live in a directory the
+# FastAPI service serves at /media/..., so the storefront and the admin both
+# resolve the same site-relative URLs stored on products.images.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR.parent / "fastapi_backend" / "media"))
+# Where the storefront runs, for admin previews of those relative image URLs.
+STORE_PUBLIC_URL = os.getenv("STORE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 # Creates tables for the unmanaged store models inside the test database.
 TEST_RUNNER = "ecommerce_admin.test_runner.UnmanagedModelTestRunner"
