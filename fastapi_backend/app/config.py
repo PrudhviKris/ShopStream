@@ -123,6 +123,12 @@ class Settings:
     SMTP_SEND_TO_LOCAL_ACCOUNTS = os.getenv("SMTP_SEND_TO_LOCAL_ACCOUNTS", "false").lower() == "true"
     EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@ecommerce.local")
 
+    # Schema management
+    # Dev convenience: create missing tables/columns at startup. Production
+    # runs `alembic upgrade head` in the release step instead, so set this
+    # false there and let migrations be the only thing that touches DDL.
+    AUTO_CREATE_SCHEMA = os.getenv("AUTO_CREATE_SCHEMA", "true").lower() == "true"
+
     # Cart
     TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))  # 8% default, set 0 to disable
 

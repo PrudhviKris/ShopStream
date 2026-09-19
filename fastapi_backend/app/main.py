@@ -43,8 +43,12 @@ class ApiPrefixMiddleware:
                     scope["raw_path"] = raw[4:] or b"/"
         await self.app(scope, receive, send)
 
-Base.metadata.create_all(bind=engine)
-upgrade_schema(engine)
+if settings.AUTO_CREATE_SCHEMA:
+    # Development: make the database match the models on boot. With
+    # AUTO_CREATE_SCHEMA=false (production, Docker) the schema comes only
+    # from `alembic upgrade head`.
+    Base.metadata.create_all(bind=engine)
+    upgrade_schema(engine)
 
 
 @asynccontextmanager
