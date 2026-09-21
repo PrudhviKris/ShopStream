@@ -8,6 +8,9 @@ Full-stack e-commerce system with three services:
 | `django_admin/` | Django | 8001 | Admin panel + analytics over the same database |
 | `frontend/` | React (Vite) | 3000 | Customer storefront |
 
+**New here?** [docs/PROJECT_SUMMARY.md](docs/PROJECT_SUMMARY.md) walks through everything
+that was built, phase by phase, with the tools used for each part.
+
 ## Quick start
 
 ### 1. FastAPI backend (user APIs)
