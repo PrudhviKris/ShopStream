@@ -142,6 +142,11 @@ class Settings:
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
 
+    # Shared secret the Django admin uses to call this API on an operator's
+    # behalf (shipping an order from /admin/ then sends the same email and
+    # live update as shipping it from the storefront). Empty = disabled.
+    SERVICE_API_TOKEN = _env("SERVICE_API_TOKEN")
+
     # Schema management
     # Dev convenience: create missing tables/columns at startup. Production
     # runs `alembic upgrade head` in the release step instead, so set this

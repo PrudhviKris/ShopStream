@@ -81,6 +81,11 @@ python manage.py runserver 8001
   - **Orders** — every order with its payment inline (amount, method, transaction id,
     status) and ship/deliver/cancel actions that enforce the allowed transitions.
   - **Notifications** and the **email log**, with a sandboxed HTML preview.
+
+  Order actions here call the API (`SERVICE_API_TOKEN`), so shipping from the admin
+  sends the customer's email and updates their screen live, exactly like shipping from
+  the storefront. If the API is unreachable the status still changes and the in-app
+  notification is written, and the admin says so.
 - Analytics dashboard: http://localhost:8001/analytics/ — **Chart.js** charts for total
   sales, the revenue trend, orders by status, sales by category, top-selling products,
   revenue by payment method and email delivery, plus low-stock alerts and recent orders.

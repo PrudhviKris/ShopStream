@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..deps import get_current_user, require_admin, require_staff_or_admin
+from ..deps import (
+    get_current_user,
+    require_admin,
+    require_staff_or_admin,
+    staff_admin_or_service,
+)
 from ..models import (
     ORDER_TRANSITIONS,
     Invoice,
@@ -151,7 +156,8 @@ def update_order_status(
         ),
     ),
     db: Session = Depends(get_db),
-    _staff: User = Depends(require_staff_or_admin),
+    # Staff/admin by JWT, or the Django admin with SERVICE_API_TOKEN.
+    _actor: Optional[User] = Depends(staff_admin_or_service),
     body: Optional[OrderStatusUpdate] = None,
 ):
     """Move an order along its lifecycle (staff/admin).

@@ -738,6 +738,44 @@ try:
                       json={"email": f"smoke-off-{RUN_ID}@example.com", "password": "SmokePass123!"}
                       ).status_code == 200)
 
+    # ---- Service token: the Django admin moving an order through the API ----
+    # Same endpoint as the storefront, so the customer still gets the
+    # notification, the email and the live update.
+    from unittest.mock import patch as _sp
+
+    r = client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
+    svc_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{svc_order_id}", headers=staff_auth)
+
+    check("without a service token configured, the header is ignored",
+          client.put(f"/orders/{svc_order_id}/status?status=shipped",
+                     headers={"X-Service-Token": "anything"}).status_code == 401)
+
+    with _sp.object(settings, "SERVICE_API_TOKEN", "test-service-token"):
+        r = client.put(f"/orders/{svc_order_id}/status?status=shipped",
+                       headers={"X-Service-Token": "wrong-token"})
+        check("a wrong service token is rejected", r.status_code == 401, r.text)
+
+        with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+            ws.receive_json()  # connected
+            r = client.put(f"/orders/{svc_order_id}/status?status=shipped",
+                           headers={"X-Service-Token": "test-service-token"})
+            check("the service token moves the order without a JWT",
+                  r.status_code == 200 and r.json()["order_status"] == "shipped", r.text)
+            note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+            check("a service-token change still notifies the customer live",
+                  note is not None and note["data"]["type"] == "order_shipped", str(seen))
+            update, seen = receive_until(ws, lambda m: m["event"] == "order_status_updated")
+            check("...and still pushes order_status_updated",
+                  update is not None and update["data"]["order_status"] == "shipped", str(seen))
+        mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+        check("...and still sends the shipping email",
+              any(f"order #{r.json()['order_number']} shipped" in m for m in mails), str(mails[:3]))
+        check("transition rules still apply to the service token",
+              client.put(f"/orders/{svc_order_id}/status?status=paid",
+                         headers={"X-Service-Token": "test-service-token"}).status_code == 400)
+    client.delete(f"/orders/{svc_order_id}", headers=admin_auth)  # returns the reserved stock
+
     # ---- Production hardening ----
     r = client.get("/health")
     check("security headers on every response",

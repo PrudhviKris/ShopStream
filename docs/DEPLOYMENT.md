@@ -70,6 +70,29 @@ python manage.py runserver 8001           # dev
 # production: gunicorn ecommerce_admin.wsgi:application -b 0.0.0.0:8001
 ```
 
+## Admin → API service token
+
+Shipping an order from the Django admin calls the API
+(`PUT /orders/{id}/status`) rather than writing the status straight to the
+database, so the customer gets the same notification, email and live update
+as when staff do it from the storefront.
+
+1. Generate a token and put the **same value** in both services:
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+   - API: `SERVICE_API_TOKEN` in `fastapi_backend/.env`
+   - Admin: `SERVICE_API_TOKEN` (compose passes it to both containers)
+2. Tell the admin where the API is: `STORE_API_URL` (compose sets
+   `http://api:8000`; locally it defaults to `http://127.0.0.1:8000`).
+
+Behaviour when it isn't set, or the API is down: the admin still applies the
+status change and writes the in-app notification, but no email and no live
+update — and it says so in the message after the action. The token is sent as
+`X-Service-Token`, compared in constant time, and only accepted on the order
+status endpoint. An empty `SERVICE_API_TOKEN` disables it entirely, so a blank
+header can never authenticate.
+
 ## Production checklist
 
 **Required — the API refuses to start with `APP_ENV=production` otherwise:**
@@ -78,6 +101,8 @@ python manage.py runserver 8001           # dev
 - [ ] `CORS_ORIGINS` lists exact origins, never `*`
 - [ ] `DATABASE_URL`/`MYSQL_*` points at MySQL, not SQLite
 - [ ] `AUTO_CREATE_SCHEMA=false` — schema changes come from `alembic upgrade head`
+- [ ] `SERVICE_API_TOKEN` set (same value in both services) if you want admin
+      order changes to email customers
 
 **Django refuses to start with `DJANGO_DEBUG=0` unless:**
 

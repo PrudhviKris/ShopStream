@@ -5,6 +5,7 @@ from django.contrib import admin, messages
 from django.db import transaction
 from django.utils.html import format_html, format_html_join
 
+from . import store_api
 from .forms import ProductAdminForm
 from .models import (
     Email,
@@ -200,10 +201,14 @@ class PaymentInline(admin.TabularInline):
 
 # ---------- Order status actions ----------
 #
-# The storefront/API is the primary place to move orders along (it also sends
-# the customer's email and pushes the live WebSocket update). These actions
-# apply the same transition rules and write the same in-app notification, so
-# an order changed here still shows up in the customer's notification inbox.
+# These call the store API (PUT /orders/{id}/status) so an order shipped from
+# here does exactly what one shipped from the storefront does: notification,
+# email, and the live WebSocket update to the customer and every connected
+# staff member.
+#
+# If the API can't be reached, we fall back to writing the status and the
+# notification directly — the operator's action shouldn't be lost because a
+# service is down — and the admin message says which path was taken.
 
 _STATUS_COPY = {
     "shipped": ("order_shipped", "Order {label} shipped", "Good news — order {label} is on its way!"),
@@ -212,29 +217,52 @@ _STATUS_COPY = {
 }
 
 
+def _move_locally(order, status, label):
+    """Fallback when the API is unreachable: write the status and the
+    notification ourselves. No email and no live push — that logic lives in
+    the API — so the caller warns the operator."""
+    order.order_status = status
+    order.save(update_fields=["order_status"])
+    type_, title, message = _STATUS_COPY[status]
+    Notification.objects.create(
+        user_id=order.user_id, type=type_, title=title.format(label=label),
+        message=message.format(label=label), order_id=order.id,
+        is_read=False, created_at=datetime.utcnow(),
+    )
+
+
 def _move_orders(modeladmin, request, queryset, status):
-    moved, refused = [], []
-    with transaction.atomic():
-        for order in queryset.select_for_update():
-            label = f"#{order.order_number or order.id}"
-            if not order.can_move_to(status):
-                refused.append(f"{label} ({order.order_status})")
-                continue
-            order.order_status = status
-            order.save(update_fields=["order_status"])
-            type_, title, message = _STATUS_COPY[status]
-            Notification.objects.create(
-                user_id=order.user_id, type=type_, title=title.format(label=label),
-                message=message.format(label=label), order_id=order.id,
-                is_read=False, created_at=datetime.utcnow(),
-            )
-            moved.append(label)
-    if moved:
+    notified, offline, refused = [], [], []
+    failures = set()
+
+    for order in queryset:
+        label = f"#{order.order_number or order.id}"
+        if not order.can_move_to(status):
+            refused.append(f"{label} ({order.order_status})")
+            continue
+        try:
+            store_api.set_order_status(order.id, status)
+            notified.append(label)
+        except store_api.StoreApiUnavailable as exc:
+            failures.add(str(exc))
+            with transaction.atomic():
+                _move_locally(order, status, label)
+            offline.append(label)
+
+    if notified:
         modeladmin.message_user(
             request,
-            f"Marked {status}: {', '.join(moved)}. Customers were notified in-app "
-            "(emails and live updates are sent only when status is changed through the storefront/API).",
+            f"Marked {status}: {', '.join(notified)}. Each customer got the in-app "
+            "notification, the email, and a live update on screen.",
             messages.SUCCESS,
+        )
+    if offline:
+        modeladmin.message_user(
+            request,
+            f"Marked {status}: {', '.join(offline)} — but the store API was unreachable, so only "
+            "the in-app notification was created (no email, no live update). "
+            f"Reason: {'; '.join(sorted(failures))[:300]}",
+            messages.WARNING,
         )
     if refused:
         modeladmin.message_user(

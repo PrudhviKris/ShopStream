@@ -63,7 +63,9 @@ low stock. Switch the range to 7 days; toggle the trend to a table.
   customer's next click returns "account has been deactivated".
   Re-activate them.
 - **Products** — upload an image, watch it appear in the storefront.
-- **Orders** — the payment inline and the ship/deliver/cancel actions.
+- **Orders** — the payment inline and the ship/deliver/cancel actions. These go
+  through the API, so watch the customer window: the notification, the email and
+  the status all arrive live from here too.
 - **Analytics** (`/analytics/`) — the Chart.js dashboard.
 
 ### 7. Reports (30 s) — *screenshot: a PDF open in a viewer*

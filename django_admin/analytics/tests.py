@@ -1,7 +1,11 @@
 """Tests for the Django admin panel and analytics over the shared store schema."""
+import io
 import json
+import os
 import shutil
 import tempfile
+import urllib.error
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +15,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Email, Invoice, Notification, Order, OrderItem, Payment, Product, Role, StoreUser
+from . import store_api
 from .pdf import PdfReport
 from .reports import money, orders_report, sales_report, users_report
 from .stats import chart_payload, store_stats
@@ -344,6 +349,53 @@ class NotificationAndEmailAdminTests(TestCase):
         self.assertNotContains(self.client.get(url, {"status__exact": "failed"}), "order #1 confirmed")
 
 
+class StoreApiClientTests(TestCase):
+    """The client only calls out when it is configured, and turns every
+    failure into StoreApiUnavailable rather than a 500 in the admin."""
+
+    def test_not_configured_means_no_call(self):
+        with mock.patch.dict(os.environ, {"SERVICE_API_TOKEN": ""}, clear=False):
+            self.assertFalse(store_api.is_configured())
+            with self.assertRaises(store_api.StoreApiUnavailable):
+                store_api.set_order_status(1, "shipped")
+
+    def test_sends_the_token_and_returns_the_order(self):
+        captured = {}
+
+        class _Response:
+            def read(self):
+                return b'{"id": 7, "order_status": "shipped"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["token"] = request.get_header("X-service-token")
+            return _Response()
+
+        with mock.patch.dict(os.environ, {"SERVICE_API_TOKEN": "tok", "STORE_API_URL": "http://api:8000"}), \
+                mock.patch.object(store_api.urllib.request, "urlopen", fake_urlopen):
+            order = store_api.set_order_status(7, "shipped")
+
+        self.assertEqual(order["order_status"], "shipped")
+        self.assertEqual(captured["method"], "PUT")
+        self.assertEqual(captured["token"], "tok")
+        self.assertEqual(captured["url"], "http://api:8000/orders/7/status?status=shipped")
+
+    def test_http_errors_become_store_api_unavailable(self):
+        error = urllib.error.HTTPError("http://api/orders/1/status", 400, "Bad Request", {}, io.BytesIO(b"nope"))
+        with mock.patch.dict(os.environ, {"SERVICE_API_TOKEN": "tok"}), \
+                mock.patch.object(store_api.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(store_api.StoreApiUnavailable) as caught:
+                store_api.set_order_status(1, "shipped")
+        self.assertIn("400", str(caught.exception))
+
+
 class OrderActionTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -364,15 +416,29 @@ class OrderActionTests(TestCase):
             follow=True,
         )
 
-    def test_ship_paid_order_notifies_customer(self):
-        response = self._act("mark_shipped", self.paid_order)
+    def test_ship_through_the_store_api(self):
+        """With the API reachable, it does the work: status, notification,
+        email and the live update all come from one place."""
+        with mock.patch.object(store_api, "set_order_status") as api_call:
+            response = self._act("mark_shipped", self.paid_order)
+        api_call.assert_called_once_with(self.paid_order.pk, "shipped")
+        self.assertContains(response, "the email, and a live update")
+        # The API owns the write, so the admin must not duplicate it.
+        self.assertFalse(Notification.objects.filter(type="order_shipped").exists())
+
+    def test_falls_back_to_a_local_update_when_the_api_is_down(self):
+        with mock.patch.object(store_api, "set_order_status",
+                               side_effect=store_api.StoreApiUnavailable("connection refused")):
+            response = self._act("mark_shipped", self.paid_order)
         self.paid_order.refresh_from_db()
         self.assertEqual(self.paid_order.order_status, "shipped")
         note = Notification.objects.get(type="order_shipped")
         self.assertEqual((note.user_id, note.order_id, note.is_read), (self.customer.id, self.paid_order.id, False))
-        self.assertContains(response, "Marked shipped")
+        self.assertContains(response, "store API was unreachable")
+        self.assertContains(response, "connection refused")
 
     def test_disallowed_transitions_are_refused(self):
+        # Refused before the API is ever called.
         response = self._act("mark_shipped", self.pending_order)  # pending must be paid first
         self.pending_order.refresh_from_db()
         self.assertEqual(self.pending_order.order_status, "pending")
@@ -380,9 +446,11 @@ class OrderActionTests(TestCase):
         self.assertContains(response, "Not allowed to move to shipped")
 
     def test_full_lifecycle_and_final_states(self):
-        self._act("mark_shipped", self.paid_order)
-        self._act("mark_delivered", self.paid_order)
-        self._act("mark_cancelled", self.paid_order)  # delivered is final
+        with mock.patch.object(store_api, "set_order_status",
+                               side_effect=store_api.StoreApiUnavailable("offline")):
+            self._act("mark_shipped", self.paid_order)
+            self._act("mark_delivered", self.paid_order)
+            self._act("mark_cancelled", self.paid_order)  # delivered is final
         self.paid_order.refresh_from_db()
         self.assertEqual(self.paid_order.order_status, "delivered")
 

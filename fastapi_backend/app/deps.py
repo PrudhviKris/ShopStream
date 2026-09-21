@@ -1,8 +1,12 @@
 """Shared dependencies: current user resolution and role-based access control."""
-from fastapi import Depends, HTTPException, status
+import secrets
+from typing import Optional
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .database import get_db
 from .models import User, UserRole
 from .security import decode_token
@@ -56,3 +60,36 @@ def require_roles(*roles: UserRole):
 
 require_admin = require_roles(UserRole.admin)
 require_staff_or_admin = require_roles(UserRole.admin, UserRole.staff)
+
+SERVICE_TOKEN_HEADER = "X-Service-Token"
+
+
+def staff_admin_or_service(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Staff/admin, or a trusted internal service.
+
+    The Django admin runs as its own process with no store JWT, so it
+    authenticates with SERVICE_API_TOKEN instead. This lets an order shipped
+    from /admin/ go through the same endpoint as one shipped from the
+    storefront — and therefore send the same email and live update.
+
+    Returns the acting user, or None when the caller is the service. The
+    token is optional: leave SERVICE_API_TOKEN unset and only JWTs work.
+    """
+    offered = request.headers.get(SERVICE_TOKEN_HEADER)
+    if offered and settings.SERVICE_API_TOKEN:
+        # compare_digest: don't leak the token one character at a time.
+        if secrets.compare_digest(offered, settings.SERVICE_API_TOKEN):
+            return None
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid service token")
+
+    user = get_current_user(credentials, db)
+    if user.role not in (UserRole.admin, UserRole.staff):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requires one of roles: admin, staff",
+        )
+    return user
