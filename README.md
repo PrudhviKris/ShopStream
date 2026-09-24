@@ -226,6 +226,14 @@ The storefront shows a **Request return** button with the deadline on eligible o
 the live state of any request; staff get a **Returns** tab, and the Django admin has a
 read-only screen whose approve/decline actions call the same API.
 
+**Display numbers** — every department has a friendly number that counts 1, 2, 3 with
+no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`) and Return #. They
+come from the `sequences` table, which only advances when a row is actually committed —
+unlike the raw `id` (MySQL AUTO_INCREMENT), which leaves holes wherever a row was deleted
+or a transaction rolled back. Both are shown in the UI: the friendly number leads, the raw
+id sits beneath it for support and SQL. Primary keys are never renumbered — JWTs embed
+`user.id`, every foreign key points at these values, and invoices already quote them.
+
 **Invoices** — issued automatically when a payment succeeds (`invoices` table,
 numbers like `INV-2026-00001`). Customers see their own (`GET /invoices`); admins see
 everyone's (`GET /invoices/all`) plus all payments (`GET /payments/all`) and all orders

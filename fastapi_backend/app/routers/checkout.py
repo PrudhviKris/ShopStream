@@ -124,6 +124,7 @@ def checkout(
         checkout_url = stripe_data.get("checkout_url")
 
     payment = Payment(
+        payment_number=next_sequence_value(db, "payment_number"),
         order_id=order.id,
         amount=total,
         currency=settings.STRIPE_CURRENCY,

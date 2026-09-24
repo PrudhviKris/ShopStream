@@ -141,6 +141,7 @@ class PaymentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    payment_number: Optional[int] = None  # friendly "Payment #N", gapless
     order_id: int
     order_number: Optional[int] = None  # the paid order's friendly number
     amount: float
@@ -215,6 +216,7 @@ class ReturnRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    return_number: Optional[int] = None   # friendly "Return #N", gapless
     order_id: int
     order_number: Optional[int] = None
     user_id: int

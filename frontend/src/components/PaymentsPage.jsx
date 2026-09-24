@@ -15,7 +15,11 @@ function MyPayments({ orders }) {
         <tbody>
           {payments.map((p) => (
             <tr key={p.id}>
-              <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
+              <td>
+                Payment #{p.payment_number ?? p.id}
+                <div className="sub mono">payment ID {p.id}</div>
+                <div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div>
+              </td>
               <td>#{p.order_number ?? p.order_id}<div className="sub mono">order ID {p.order_id}</div></td>
               <td>{formatMoney(p.amount, p.currency)}</td>
               <td><span className={`badge ${p.payment_method}`}>{p.payment_method}</span></td>
@@ -48,7 +52,11 @@ function AllPayments({ notify }) {
         <tbody>
           {payments.map((p) => (
             <tr key={p.id}>
-              <td>#{p.id}<div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div></td>
+              <td>
+                Payment #{p.payment_number ?? p.id}
+                <div className="sub mono">payment ID {p.id}</div>
+                <div className="sub">{new Date(p.created_at + "Z").toLocaleString()}</div>
+              </td>
               <td>#{p.order_number ?? p.order_id}<div className="sub mono">order ID {p.order_id}</div></td>
               <td>
                 {p.user_name}

@@ -12,6 +12,12 @@ from sqlalchemy.engine import Engine
 
 # table -> [(column, DDL type)] — kept in step with app/models.py
 ADDED_COLUMNS = {
+    "payments": [
+        ("payment_number", "INTEGER NULL"),
+    ],
+    "return_requests": [
+        ("return_number", "INTEGER NULL"),
+    ],
     "orders": [
         ("delivered_at", "DATETIME NULL"),
     ],

@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..schemas import AdminOrderOut, OrderOut, OrderStatusUpdate, ReturnRequestCreate, ReturnRequestOut
 from ..services import order_events
+from ..services.sequence_service import next_sequence_value
 from .returns import serialize as serialize_return
 from ..services.notification_service import publish
 
@@ -155,6 +156,7 @@ def request_return(
         )
 
     return_request = ReturnRequest(
+        return_number=next_sequence_value(db, "return_number"),
         order_id=order.id,
         user_id=user.id,
         reason=body.reason.value,

@@ -36,6 +36,7 @@ def serialize(request: ReturnRequest, admin: bool = False):
     """One shape for both audiences; the admin one adds who's who."""
     data = {
         "id": request.id,
+        "return_number": request.return_number,
         "order_id": request.order_id,
         "order_number": request.order.order_number if request.order else None,
         "user_id": request.user_id,

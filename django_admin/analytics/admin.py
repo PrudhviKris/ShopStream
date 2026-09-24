@@ -314,7 +314,9 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ("id", "order", "amount", "currency", "payment_method", "status", "created_at")
+    list_display = ("payment_number", "id", "order", "amount", "currency", "payment_method",
+                    "status", "created_at")
+    list_display_links = ("payment_number", "id")
     list_filter = ("status", "payment_method")
     search_fields = ("transaction_id",)
 
@@ -385,14 +387,15 @@ def decline_returns(modeladmin, request, queryset):
 
 @admin.register(ReturnRequest)
 class ReturnRequestAdmin(admin.ModelAdmin):
-    list_display = ("id", "order_link", "user", "reason", "status", "refund_amount",
-                    "created_at", "decided_at", "decided_by")
+    list_display = ("return_number", "id", "order_link", "user", "reason", "status",
+                    "refund_amount", "created_at", "decided_at", "decided_by")
+    list_display_links = ("return_number", "id")
     list_filter = ("status", "reason")
     search_fields = ("order__order_number", "user__name", "user__email", "refund_reference")
     date_hierarchy = "created_at"
     list_select_related = ("order", "user", "decided_by")
     actions = [approve_returns, decline_returns]
-    fields = ("order", "user", "reason", "comment", "status", "created_at",
+    fields = ("return_number", "order", "user", "reason", "comment", "status", "created_at",
               "decided_at", "decided_by", "decision_note", "refund_amount", "refund_reference")
     readonly_fields = fields
 

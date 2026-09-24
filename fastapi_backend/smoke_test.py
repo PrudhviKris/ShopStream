@@ -951,6 +951,59 @@ try:
                          headers={"X-Service-Token": "test-service-token"}).status_code == 400)
     client.delete(f"/orders/{svc_order_id}", headers=admin_auth)  # returns the reserved stock
 
+    # ---- Display numbers: every department counts 1, 2, 3 with no gaps ----
+    # Raw ids are AUTO_INCREMENT and keep the holes left by deleted rows;
+    # these numbers are what people quote, so they must stay unbroken.
+    with SessionLocal() as _db:
+        for table, column in (("users", "customer_number"), ("orders", "order_number"),
+                              ("payments", "payment_number"), ("return_requests", "return_number")):
+            rows = _db.execute(text(
+                f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL ORDER BY id")).fetchall()
+            numbers = [row[1] for row in rows]
+            # Numbers are handed out 1, 2, 3... in creation order and never
+            # reused. A number can be missing from this list only because the
+            # row was deleted — renumbering the survivors would rewrite
+            # invoices and emails that already quote the old number.
+            check(f"{table}.{column} is unique and rises with creation order",
+                  len(set(numbers)) == len(numbers) and numbers == sorted(numbers)
+                  and (not numbers or min(numbers) >= 1),
+                  f"{numbers[:5]}...{numbers[-5:]}" if numbers else "none assigned")
+            counter = _db.execute(text("SELECT value FROM sequences WHERE name = :n"),
+                                  {"n": column}).scalar()
+            check(f"the {column} counter is at least the highest number in use",
+                  counter >= (numbers[-1] if numbers else 0),
+                  f"counter={counter} highest={numbers[-1:]}")
+
+        invoice_numbers = [row[0] for row in _db.execute(
+            text("SELECT invoice_number FROM invoices ORDER BY id"))]
+        parsed = [int(n.split("-")[-1]) for n in invoice_numbers]
+        check("invoice numbers are unique and rise with creation order",
+              len(set(parsed)) == len(parsed) and parsed == sorted(parsed), str(invoice_numbers[:3]))
+
+    # Each new row takes exactly the next number from the counter — never a
+    # jump, and never a number that was already handed out (even to a row
+    # that has since been deleted).
+    def counter_value(name):
+        with SessionLocal() as _db:
+            return _db.execute(text("SELECT value FROM sequences WHERE name = :n"),
+                               {"n": name}).scalar() or 0
+
+    before_payment, before_order = counter_value("payment_number"), counter_value("order_number")
+    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
+    numbered_order = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    order_row = client.get(f"/orders/{numbered_order}", headers=auth).json()
+    payment = client.get(f"/payments/{numbered_order}", headers=auth).json()
+    check("a new order takes exactly the next order number",
+          order_row["order_number"] == before_order + 1,
+          f'{order_row["order_number"]} after counter {before_order}')
+    check("its payment takes exactly the next payment number",
+          payment["payment_number"] == before_payment + 1,
+          f'{payment["payment_number"]} after counter {before_payment}')
+    check("both counters advanced by exactly one",
+          counter_value("order_number") == before_order + 1
+          and counter_value("payment_number") == before_payment + 1)
+    client.delete(f"/orders/{numbered_order}", headers=admin_auth)
+
     # ---- Production hardening ----
     r = client.get("/health")
     check("security headers on every response",

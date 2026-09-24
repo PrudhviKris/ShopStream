@@ -135,6 +135,7 @@ class Invoice(models.Model):
 
 
 class Payment(models.Model):
+    payment_number = models.IntegerField(null=True, blank=True, unique=True)
     order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, db_column="order_id")
     amount = models.FloatField()
     currency = models.CharField(max_length=10)
@@ -149,7 +150,7 @@ class Payment(models.Model):
         db_table = "payments"
 
     def __str__(self):
-        return f"Payment #{self.id} for order #{self.order_id}"
+        return f"Payment #{self.payment_number or self.id} for order #{self.order_id}"
 
 
 class Notification(models.Model):
@@ -235,6 +236,7 @@ class ReturnRequest(models.Model):
         ("no_longer_needed", "No longer needed"), ("other", "Other"),
     ]
 
+    return_number = models.IntegerField(null=True, blank=True, unique=True)
     order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, db_column="order_id",
                               related_name="return_requests")
     user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id",
@@ -257,4 +259,4 @@ class ReturnRequest(models.Model):
         verbose_name = "return request"
 
     def __str__(self):
-        return f"Return #{self.id} for order #{self.order.order_number or self.order_id}"
+        return f"Return #{self.return_number or self.id} for order #{self.order.order_number or self.order_id}"

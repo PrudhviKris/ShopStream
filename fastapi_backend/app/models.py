@@ -208,6 +208,8 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Friendly, gapless "Payment #N" — see User.customer_number.
+    payment_number = Column(Integer, unique=True, index=True, nullable=True)
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, unique=True)
     amount = Column(Float, nullable=False)
     currency = Column(String(10), default="usd")
@@ -399,6 +401,8 @@ class ReturnRequest(Base):
     __tablename__ = "return_requests"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Friendly, gapless "Return #N" — see User.customer_number.
+    return_number = Column(Integer, unique=True, index=True, nullable=True)
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     reason = Column(String(60), nullable=False)          # one of RETURN_REASONS
