@@ -35,8 +35,14 @@ export default function InvoicesPage({ user }) {
               {invoices.map((inv) => (
                 <tr key={inv.id}>
                   <td className="mono">{inv.invoice_number}</td>
-                  <td>#{inv.order_number ?? inv.order_id}</td>
-                  {admin && <td>{inv.user_name}<div className="sub">{inv.user_email}</div></td>}
+                  <td>#{inv.order_number ?? inv.order_id}<div className="sub mono">order ID {inv.order_id}</div></td>
+                  {admin && (
+                    <td>
+                      {inv.user_name}
+                      <div className="sub">{inv.user_email}</div>
+                      <div className="sub mono">user ID {inv.user_id}</div>
+                    </td>
+                  )}
                   <td>{formatMoney(inv.subtotal, inv.currency)}</td>
                   <td>{formatMoney(inv.tax, inv.currency)}</td>
                   <td><strong>{formatMoney(inv.total, inv.currency)}</strong></td>

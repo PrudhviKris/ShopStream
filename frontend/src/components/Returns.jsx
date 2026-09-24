@@ -96,7 +96,7 @@ export function ReturnState({ request }) {
           : status === "approved" ? "✅ return approved" : "✖ return declined"}
       </span>
       <span className="sub">
-        {request.reason_label} · asked {when(request.created_at)}
+        request #{request.id} · {request.reason_label} · asked {when(request.created_at)}
         {request.refund_amount ? ` · refunded ${formatMoney(request.refund_amount)}` : ""}
       </span>
       {request.decision_note && <div className="return-note">“{request.decision_note}”</div>}
@@ -170,8 +170,15 @@ export function ReturnsQueue({ notify }) {
             {returns.map((r) => (
               <tr key={r.id}>
                 <td>#{r.id}<div className="sub">{when(r.created_at)}</div></td>
-                <td>#{r.order_number ?? r.order_id}</td>
-                <td>{r.user_name}<div className="sub">{r.user_email}</div></td>
+                <td>
+                  #{r.order_number ?? r.order_id}
+                  <div className="sub mono">order ID {r.order_id}</div>
+                </td>
+                <td>
+                  {r.user_name}
+                  <div className="sub">{r.user_email}</div>
+                  <div className="sub mono">user ID {r.user_id}</div>
+                </td>
                 <td>
                   {r.reason_label}
                   {r.comment && <div className="sub">“{r.comment}”</div>}

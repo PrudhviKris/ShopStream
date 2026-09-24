@@ -242,6 +242,7 @@ def all_payments(db: Session = Depends(get_db), _admin: User = Depends(require_a
     return [
         AdminPaymentOut(
             **PaymentOut.model_validate(p).model_dump(),
+            user_id=p.order.user_id,
             user_name=p.order.user.name,
             user_email=p.order.user.email,
         )

@@ -183,6 +183,7 @@ class AdminOrderOut(OrderOut):
 
 
 class AdminPaymentOut(PaymentOut):
+    user_id: int          # who paid — staff cross-reference this against users
     user_name: str
     user_email: EmailStr
 

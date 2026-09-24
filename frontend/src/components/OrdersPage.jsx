@@ -69,6 +69,7 @@ function MyOrders({ orders, invoices, onShop, notify, onChanged }) {
         <div className="order" key={order.id}>
           <div className="order-head">
             <span className="id">Order #{order.order_number ?? order.id}</span>
+            <span className="ref">order ID {order.id}</span>
             <span className="date">{new Date(order.created_at + "Z").toLocaleString()}</span>
             <span className={`badge ${order.order_status}`}>{order.order_status}</span>
             <span className={`badge ${order.payment_status}`}>payment: {order.payment_status}</span>
@@ -129,11 +130,13 @@ function StatusBox({ order, user, busy, onConfirm, onStatus, onDelete, onClose }
         <button className="modal-close close-btn" onClick={onClose}>✕</button>
         <p className="eyebrow">UPDATE ORDER STATUS</p>
         <h2>Order {label}</h2>
+        <p className="id-line mono">order ID {order.id} · user ID {order.user_id}</p>
 
         <div className="status-now">
           <div>
             <small>Customer</small>
             <strong>{order.user_name}</strong>
+            <small className="mono">{order.user_email}</small>
           </div>
           <div>
             <small>Order status</small>
@@ -243,8 +246,16 @@ function AllOrders({ user, notify }) {
           <tbody>
             {orders.map((o) => (
               <tr key={o.id}>
-                <td>{label(o)}<div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div></td>
-                <td>{o.user_name}<div className="sub">{o.user_email}</div></td>
+                <td>
+                  {label(o)}
+                  <div className="sub mono">order ID {o.id}</div>
+                  <div className="sub">{new Date(o.created_at + "Z").toLocaleDateString()}</div>
+                </td>
+                <td>
+                  {o.user_name}
+                  <div className="sub">{o.user_email}</div>
+                  <div className="sub mono">user ID {o.user_id}</div>
+                </td>
                 <td>{o.items.map((i) => `${i.product_name} × ${i.quantity}`).join(", ")}</td>
                 <td>{formatMoney(o.total)}</td>
                 <td><span className={`badge ${o.payment_status}`}>{o.payment_status}</span></td>
