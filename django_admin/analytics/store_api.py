@@ -36,6 +36,32 @@ def is_configured() -> bool:
     return bool(os.getenv("SERVICE_API_TOKEN", "").strip())
 
 
+def decide_return(return_id: int, approve: bool, note: str = "") -> dict:
+    """Approve or reject a return through the API.
+
+    Approving there refunds the payment, restocks the items and emails the
+    customer — none of which this admin can do on its own, so unlike order
+    status changes there is no local fallback.
+    """
+    if not is_configured():
+        raise StoreApiUnavailable("SERVICE_API_TOKEN is not set")
+
+    action = "approve" if approve else "reject"
+    url = f"{_base_url()}/returns/{int(return_id)}/{action}"
+    body = json.dumps({"note": note or None}).encode("utf-8")
+    request = urllib.request.Request(url, data=body, method="POST")
+    request.add_header("X-Service-Token", os.environ["SERVICE_API_TOKEN"].strip())
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        raise StoreApiUnavailable(f"API returned {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise StoreApiUnavailable(f"{exc.__class__.__name__}: {exc}") from exc
+
+
 def set_order_status(order_id: int, status: str) -> dict:
     """PUT /orders/{id}/status. Returns the updated order, or raises."""
     if not is_configured():

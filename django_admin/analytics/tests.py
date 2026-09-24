@@ -14,7 +14,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import Email, Invoice, Notification, Order, OrderItem, Payment, Product, Role, StoreUser
+from .models import (Email, Invoice, Notification, Order, OrderItem, Payment, Product,
+                     ReturnRequest, Role, StoreUser)
 from . import store_api
 from .pdf import PdfReport
 from .reports import money, orders_report, sales_report, users_report
@@ -115,7 +116,7 @@ class AdminSiteTests(TestCase):
         response = self.client.get("/admin/")
         self.assertEqual(response.status_code, 200)
         for label in (b"Products", b"Orders", b"Payments", b"Invoices", b"Roles", b"Users",
-                      b"Notifications", b"Emails"):
+                      b"Notifications", b"Emails", b"Return requests"):
             self.assertIn(label, response.content)
         self.assertIn(reverse("analytics-dashboard").encode(), response.content)  # dashboard shortcut
 
@@ -129,6 +130,7 @@ class AdminSiteTests(TestCase):
             "analytics_role_changelist",
             "analytics_notification_changelist",
             "analytics_email_changelist",
+            "analytics_returnrequest_changelist",
         ):
             with self.subTest(url_name=url_name):
                 response = self.client.get(reverse(f"admin:{url_name}"))
@@ -349,6 +351,81 @@ class NotificationAndEmailAdminTests(TestCase):
         self.assertNotContains(self.client.get(url, {"status__exact": "failed"}), "order #1 confirmed")
 
 
+class ReturnRequestAdminTests(TestCase):
+    """Returns are read-only here; decisions go through the store API."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.customer, cls.store_admin, _, _, cls.order = make_store_data()
+        cls.order.order_status = "return_requested"
+        cls.order.delivered_at = datetime.utcnow()
+        cls.order.save(update_fields=["order_status", "delivered_at"])
+        cls.request = ReturnRequest.objects.create(
+            order=cls.order, user=cls.customer, reason="damaged",
+            comment="Screen cracked in transit.", status="pending", created_at=datetime.utcnow(),
+        )
+        cls.superuser = AdminUser.objects.create_superuser("django-admin", "dj@test.com", "AdminTestPass123!")
+
+    def setUp(self):
+        self.client.force_login(self.superuser)
+
+    def _act(self, action, *requests):
+        return self.client.post(
+            reverse("admin:analytics_returnrequest_changelist"),
+            {"action": action, "_selected_action": [r.pk for r in requests]},
+            follow=True,
+        )
+
+    def test_list_shows_the_request(self):
+        response = self.client.get(reverse("admin:analytics_returnrequest_changelist"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Arrived damaged")
+        self.assertContains(response, "cust@test.com")
+
+    def test_returns_are_read_only(self):
+        self.assertEqual(self.client.get(reverse("admin:analytics_returnrequest_add")).status_code, 403)
+        self.assertEqual(
+            self.client.get(reverse("admin:analytics_returnrequest_delete", args=[self.request.pk])).status_code,
+            403,
+        )
+        # the change view renders, but every field is read-only
+        response = self.client.get(reverse("admin:analytics_returnrequest_change", args=[self.request.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="status"')
+
+    def test_approve_goes_through_the_api(self):
+        with mock.patch.object(store_api, "decide_return",
+                               return_value={"status": "approved", "refund_reference": "REFUND-ABC"}) as call:
+            response = self._act("approve_returns", self.request)
+        call.assert_called_once_with(self.request.pk, True)
+        self.assertContains(response, "Approved and refunded")
+        self.assertContains(response, "REFUND-ABC")
+
+    def test_decline_goes_through_the_api(self):
+        with mock.patch.object(store_api, "decide_return", return_value={"status": "rejected"}) as call:
+            response = self._act("decline_returns", self.request)
+        call.assert_called_once_with(self.request.pk, False)
+        self.assertContains(response, "Declined")
+
+    def test_an_unreachable_api_changes_nothing(self):
+        """No local fallback here: only the API can move the money."""
+        with mock.patch.object(store_api, "decide_return",
+                               side_effect=store_api.StoreApiUnavailable("connection refused")):
+            response = self._act("approve_returns", self.request)
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, "pending")
+        self.assertContains(response, "Nothing was changed")
+        self.assertContains(response, "connection refused")
+
+    def test_already_decided_requests_are_skipped(self):
+        self.request.status = "approved"
+        self.request.save(update_fields=["status"])
+        with mock.patch.object(store_api, "decide_return") as call:
+            response = self._act("approve_returns", self.request)
+        call.assert_not_called()
+        self.assertContains(response, "Already decided")
+
+
 class StoreApiClientTests(TestCase):
     """The client only calls out when it is configured, and turns every
     failure into StoreApiUnavailable rather than a 500 in the admin."""
@@ -386,6 +463,43 @@ class StoreApiClientTests(TestCase):
         self.assertEqual(captured["method"], "PUT")
         self.assertEqual(captured["token"], "tok")
         self.assertEqual(captured["url"], "http://api:8000/orders/7/status?status=shipped")
+
+    def test_decide_return_posts_the_note(self):
+        captured = {}
+
+        class _Response:
+            def read(self):
+                return b'{"id": 5, "status": "approved"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = json.loads(request.data.decode())
+            return _Response()
+
+        with mock.patch.dict(os.environ, {"SERVICE_API_TOKEN": "tok", "STORE_API_URL": "http://api:8000"}), \
+                mock.patch.object(store_api.urllib.request, "urlopen", fake_urlopen):
+            result = store_api.decide_return(5, True, "Refunded in full.")
+
+        self.assertEqual(result["status"], "approved")
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["url"], "http://api:8000/returns/5/approve")
+        self.assertEqual(captured["body"], {"note": "Refunded in full."})
+
+    def test_decide_return_uses_the_reject_path(self):
+        with mock.patch.dict(os.environ, {"SERVICE_API_TOKEN": "tok"}), \
+                mock.patch.object(store_api.urllib.request, "urlopen") as urlopen:
+            urlopen.return_value.__enter__ = lambda self_: self_
+            urlopen.return_value.__exit__ = lambda *a: False
+            urlopen.return_value.read = lambda: b'{"status": "rejected"}'
+            store_api.decide_return(9, False)
+        self.assertTrue(urlopen.call_args[0][0].full_url.endswith("/returns/9/reject"))
 
     def test_http_errors_become_store_api_unavailable(self):
         error = urllib.error.HTTPError("http://api/orders/1/status", 400, "Bad Request", {}, io.BytesIO(b"nope"))

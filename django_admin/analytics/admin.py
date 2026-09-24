@@ -3,6 +3,7 @@ from datetime import datetime
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db import transaction
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 
 from . import store_api
@@ -15,6 +16,7 @@ from .models import (
     OrderItem,
     Payment,
     Product,
+    ReturnRequest,
     Role,
     StoreUser,
 )
@@ -327,6 +329,90 @@ class InvoiceAdmin(admin.ModelAdmin):
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "description")
+
+
+# ---------- Returns ----------
+#
+# Decisions go through the store API: approving refunds the payment, puts the
+# stock back and emails the customer, none of which can be done by writing to
+# this table. So unlike the order actions there is no local fallback — if the
+# API is unreachable the operator is told to try again.
+
+def _decide_returns(modeladmin, request, queryset, approve):
+    done, skipped, failed = [], [], []
+    for return_request in queryset:
+        label = f"#{return_request.id}"
+        if return_request.status != "pending":
+            skipped.append(f"{label} (already {return_request.status})")
+            continue
+        try:
+            result = store_api.decide_return(return_request.id, approve)
+            done.append(
+                f"{label} ({result.get('refund_reference')})" if approve and result.get("refund_reference")
+                else label
+            )
+        except store_api.StoreApiUnavailable as exc:
+            failed.append(f"{label}: {exc}")
+
+    if done:
+        modeladmin.message_user(
+            request,
+            (f"Approved and refunded: {', '.join(done)}. The items are back in stock and "
+             "each customer has been emailed." if approve
+             else f"Declined: {', '.join(done)}. Those orders are back to delivered."),
+            messages.SUCCESS,
+        )
+    if skipped:
+        modeladmin.message_user(request, f"Already decided: {', '.join(skipped)}.", messages.WARNING)
+    if failed:
+        modeladmin.message_user(
+            request,
+            f"Nothing was changed for {', '.join(failed)}. Refunds run in the store API — "
+            "check it is running and SERVICE_API_TOKEN matches, then try again.",
+            messages.ERROR,
+        )
+
+
+@admin.action(description="Approve return and refund the customer")
+def approve_returns(modeladmin, request, queryset):
+    _decide_returns(modeladmin, request, queryset, approve=True)
+
+
+@admin.action(description="Decline return")
+def decline_returns(modeladmin, request, queryset):
+    _decide_returns(modeladmin, request, queryset, approve=False)
+
+
+@admin.register(ReturnRequest)
+class ReturnRequestAdmin(admin.ModelAdmin):
+    list_display = ("id", "order_link", "user", "reason", "status", "refund_amount",
+                    "created_at", "decided_at", "decided_by")
+    list_filter = ("status", "reason")
+    search_fields = ("order__order_number", "user__name", "user__email", "refund_reference")
+    date_hierarchy = "created_at"
+    list_select_related = ("order", "user", "decided_by")
+    actions = [approve_returns, decline_returns]
+    fields = ("order", "user", "reason", "comment", "status", "created_at",
+              "decided_at", "decided_by", "decision_note", "refund_amount", "refund_reference")
+    readonly_fields = fields
+
+    @admin.display(description="Order")
+    def order_link(self, return_request):
+        order = return_request.order
+        return format_html(
+            '<a href="{}">#{}</a>',
+            reverse("admin:analytics_order_change", args=[order.pk]),
+            order.order_number or order.pk,
+        )
+
+    def has_add_permission(self, request):
+        return False  # customers open returns from the storefront
+
+    def has_change_permission(self, request, obj=None):
+        return False  # decisions are made with the actions above
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # the refund trail stays
 
 
 # ---------- Notifications ----------

@@ -57,6 +57,7 @@ class Order(models.Model):
     STATUS_CHOICES = [
         ("pending", "Pending"), ("paid", "Paid"), ("shipped", "Shipped"),
         ("delivered", "Delivered"), ("cancelled", "Cancelled"),
+        ("return_requested", "Return requested"), ("returned", "Returned"),
     ]
 
     # Mirrors ORDER_TRANSITIONS in fastapi_backend/app/models.py. "paid" is
@@ -77,6 +78,7 @@ class Order(models.Model):
     payment_status = models.CharField(max_length=20)
     order_status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     created_at = models.DateTimeField(default=datetime.utcnow)
+    delivered_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         managed = False
@@ -216,3 +218,43 @@ class Email(models.Model):
 
     def __str__(self):
         return self.subject
+
+
+class ReturnRequest(models.Model):
+    """A customer's request to send an order back.
+
+    Decisions are made through the store API (approving also refunds the
+    payment and restocks the items), so this admin is read-only apart from
+    the approve/decline actions.
+    """
+
+    STATUS_CHOICES = [("pending", "Pending"), ("approved", "Approved"), ("rejected", "Rejected")]
+    REASON_CHOICES = [
+        ("damaged", "Arrived damaged"), ("wrong_item", "Wrong item sent"),
+        ("not_as_described", "Not as described"), ("missing_parts", "Parts missing"),
+        ("no_longer_needed", "No longer needed"), ("other", "Other"),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, db_column="order_id",
+                              related_name="return_requests")
+    user = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="user_id",
+                             related_name="return_requests")
+    reason = models.CharField(max_length=60, choices=REASON_CHOICES)
+    comment = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    created_at = models.DateTimeField(default=datetime.utcnow)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.ForeignKey(StoreUser, on_delete=models.DO_NOTHING, db_column="decided_by_id",
+                                   null=True, blank=True, related_name="return_decisions")
+    decision_note = models.TextField(null=True, blank=True)
+    refund_amount = models.FloatField(null=True, blank=True)
+    refund_reference = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "return_requests"
+        ordering = ["-created_at", "-id"]
+        verbose_name = "return request"
+
+    def __str__(self):
+        return f"Return #{self.id} for order #{self.order.order_number or self.order_id}"

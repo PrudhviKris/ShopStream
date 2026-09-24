@@ -1092,6 +1092,33 @@
           }
         },
         {
+          "name": "Request Return",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/{order_id}/return",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "orders",
+                "{order_id}",
+                "return"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "order_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Ask to send an order back.\n\nAllowed only on your own order, once it has been **delivered**, and within\nthe return window (RETURN_WINDOW_DAYS, 7 by default). One open request per\norder: the order moves to `return_requested` until staff approve or reject\nit, and approving issues the refund."
+          }
+        },
+        {
           "name": "Update Order Status",
           "request": {
             "method": "PUT",
@@ -1580,6 +1607,157 @@
               ]
             },
             "description": "Delete Product"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Returns",
+      "item": [
+        {
+          "name": "My Returns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Your own return requests, newest first."
+          }
+        },
+        {
+          "name": "All Returns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns/all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Filter by decision state.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Staff/admin: every return request. `?status=pending` is the work queue."
+          }
+        },
+        {
+          "name": "Return Reasons",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns/reasons",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns",
+                "reasons"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "The reasons a customer may choose, for the storefront's dropdown."
+          }
+        },
+        {
+          "name": "Get Return",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns/{return_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns",
+                "{return_id}"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "return_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Get Return"
+          }
+        },
+        {
+          "name": "Approve Return",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns/{return_id}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns",
+                "{return_id}",
+                "approve"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "return_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin: approve a return, refund the payment, restock the items.\n\nThe refund goes through Stripe for live card payments; cash, mock-mode\nand anything Stripe can't refund get a local reference so the money still\nhas an audit trail. The customer is notified and emailed either way."
+          }
+        },
+        {
+          "name": "Reject Return",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/returns/{return_id}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "returns",
+                "{return_id}",
+                "reject"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "return_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin: decline a return. The order goes back to delivered."
           }
         }
       ]

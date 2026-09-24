@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import (
     JSON,
@@ -31,6 +31,8 @@ class OrderStatus(str, enum.Enum):
     shipped = "shipped"
     delivered = "delivered"
     cancelled = "cancelled"
+    return_requested = "return_requested"   # customer asked to return it
+    returned = "returned"                   # return approved and refunded
 
 
 # Which statuses an order may move to from where it is now — the single source
@@ -40,12 +42,18 @@ class OrderStatus(str, enum.Enum):
 # "paid" is deliberately unreachable here: an order only becomes paid by
 # confirming its payment (Stripe webhook, or POST /payments/confirm/{order_id}),
 # which also settles the payment record and issues the invoice.
+# "return_requested" and "returned" are missing on purpose too: a return is
+# opened by the customer (POST /orders/{id}/return) and closed by staff
+# approving or rejecting it (POST /returns/{id}/approve|reject), which also
+# handles the refund. Flipping the status by hand would skip both.
 ORDER_TRANSITIONS: dict = {
     OrderStatus.pending: [OrderStatus.cancelled],
     OrderStatus.paid: [OrderStatus.shipped, OrderStatus.cancelled],
     OrderStatus.shipped: [OrderStatus.delivered, OrderStatus.cancelled],
     OrderStatus.delivered: [],
     OrderStatus.cancelled: [],
+    OrderStatus.return_requested: [],
+    OrderStatus.returned: [],
 }
 
 
@@ -121,10 +129,16 @@ class Order(Base):
     payment_status = Column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
     order_status = Column(Enum(OrderStatus), default=OrderStatus.pending, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # When it reached the customer. The return window counts from here.
+    delivered_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     payment = relationship("Payment", back_populates="order", uselist=False)
+    return_requests = relationship(
+        "ReturnRequest", back_populates="order", cascade="all, delete-orphan",
+        order_by="ReturnRequest.created_at.desc()",
+    )
 
     @property
     def allowed_next_statuses(self) -> list:
@@ -137,6 +151,43 @@ class Order(Base):
         """True when POST /payments/confirm/{order_id} still applies — i.e. the
         money hasn't been settled yet. This is how an order reaches 'paid'."""
         return self.payment_status != PaymentStatus.succeeded
+
+    # ---------- returns ----------
+    @property
+    def return_deadline(self):
+        """Last moment a return can be opened, or None if it never could.
+
+        Counted from delivery. Orders delivered before `delivered_at` existed
+        fall back to when they were placed, which is the conservative choice:
+        it can only make the window shorter, never longer.
+        """
+        from .config import settings
+
+        if self.order_status not in (OrderStatus.delivered, OrderStatus.return_requested,
+                                     OrderStatus.returned):
+            return None
+        start = self.delivered_at or self.created_at
+        return start + timedelta(days=settings.RETURN_WINDOW_DAYS)
+
+    @property
+    def open_return(self):
+        """The return request still waiting on a decision, if there is one."""
+        return next((r for r in self.return_requests if r.status == ReturnStatus.pending), None)
+
+    @property
+    def can_request_return(self) -> bool:
+        """Delivered, inside the window, and not already being returned."""
+        if self.order_status != OrderStatus.delivered:
+            return False
+        if self.open_return is not None:
+            return False
+        deadline = self.return_deadline
+        return deadline is not None and datetime.utcnow() <= deadline
+
+    @property
+    def return_status(self):
+        """The newest return request's status, for list responses."""
+        return self.return_requests[0].status.value if self.return_requests else None
 
 
 class OrderItem(Base):
@@ -256,6 +307,9 @@ class NotificationType(str, enum.Enum):
     order_shipped = "order_shipped"
     order_delivered = "order_delivered"
     order_cancelled = "order_cancelled"
+    return_requested = "return_requested"
+    return_approved = "return_approved"
+    return_rejected = "return_rejected"
     info = "info"
 
 
@@ -326,3 +380,61 @@ class DevelopmentEmail(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="development_emails")
+
+
+class ReturnStatus(str, enum.Enum):
+    pending = "pending"      # waiting for staff to decide
+    approved = "approved"    # accepted; the refund has been processed
+    rejected = "rejected"    # declined, with a reason
+
+
+class ReturnRequest(Base):
+    """A customer asking to send an order back.
+
+    Opened by the customer within the return window, closed by staff. An
+    approval also refunds the payment and puts the stock back, so this row is
+    the audit trail for the money: who decided, when, and what was refunded.
+    """
+
+    __tablename__ = "return_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reason = Column(String(60), nullable=False)          # one of RETURN_REASONS
+    comment = Column(Text, nullable=True)                # optional detail from the customer
+    status = Column(Enum(ReturnStatus), default=ReturnStatus.pending, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Filled in when staff decide.
+    decided_at = Column(DateTime, nullable=True)
+    decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decision_note = Column(Text, nullable=True)
+    refund_amount = Column(Float, nullable=True)
+    refund_reference = Column(String(255), nullable=True)  # Stripe refund id, or a CASH-... ref
+
+    order = relationship("Order", back_populates="return_requests")
+    user = relationship("User", foreign_keys=[user_id])
+    decided_by = relationship("User", foreign_keys=[decided_by_id])
+
+
+class ReturnReason(str, enum.Enum):
+    """What a customer may pick. Free text goes in `comment`, so the reason
+    itself stays something the store can count and report on."""
+
+    damaged = "damaged"
+    wrong_item = "wrong_item"
+    not_as_described = "not_as_described"
+    missing_parts = "missing_parts"
+    no_longer_needed = "no_longer_needed"
+    other = "other"
+
+
+RETURN_REASONS = {
+    ReturnReason.damaged.value: "Arrived damaged",
+    ReturnReason.wrong_item.value: "Wrong item sent",
+    ReturnReason.not_as_described.value: "Not as described",
+    ReturnReason.missing_parts.value: "Parts missing",
+    ReturnReason.no_longer_needed.value: "No longer needed",
+    ReturnReason.other.value: "Other",
+}

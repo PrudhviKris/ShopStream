@@ -98,3 +98,38 @@ def construct_webhook_event(payload: bytes, sig_header: Optional[str]):
         )
     except Exception as exc:
         raise ValueError(str(exc))
+
+
+def refund_payment(transaction_id: Optional[str], amount: float, currency: str) -> dict:
+    """Refund a settled payment. Returns {reference, provider, live}.
+
+    Live Stripe payments are refunded through the API; cash, mock-mode and
+    anything Stripe can't refund get a locally generated reference so the
+    money still has an audit trail. Raises only when Stripe itself rejects
+    the refund, so the caller can tell the operator.
+    """
+    reference_prefix = "REFUND"
+    if not is_live() or not (transaction_id or "").startswith(("cs_", "pi_")):
+        return {
+            "reference": f"{reference_prefix}-{uuid.uuid4().hex[:12].upper()}",
+            "provider": "manual",
+            "live": False,
+        }
+
+    intent_id = transaction_id
+    if transaction_id.startswith("cs_"):
+        # A Checkout Session isn't refundable itself — its PaymentIntent is.
+        session = _stripe.checkout.Session.retrieve(transaction_id)
+        intent_id = getattr(session, "payment_intent", None)
+        if intent_id is None:
+            raise RuntimeError(f"Stripe session {transaction_id} has no payment to refund.")
+        if not isinstance(intent_id, str):
+            intent_id = intent_id.id
+
+    refund = _stripe.Refund.create(
+        payment_intent=intent_id,
+        # Stripe counts in the currency's smallest unit (paise for INR).
+        amount=int(round(amount * 100)),
+        reason="requested_by_customer",
+    )
+    return {"reference": refund.id, "provider": "stripe", "live": True}

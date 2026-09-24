@@ -24,9 +24,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Invoice, NotificationType, Order, OrderStatus, Payment
+from ..models import RETURN_REASONS, Invoice, NotificationType, Order, OrderStatus, Payment
 from .email_service import send_email
-from .notification_service import notify, publish_order_status
+from .notification_service import notify, publish, publish_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +250,75 @@ _SHIPPING_COPY = {
         "contact us if this wasn't expected.",
     ),
 }
+
+
+def return_requested(db: Session, order: Order, return_request) -> None:
+    """The customer asked to send an order back."""
+    label = _label(order)
+    reason = RETURN_REASONS.get(return_request.reason, return_request.reason)
+    _deliver(
+        db, order, NotificationType.return_requested,
+        title=f"Return requested for order {label}",
+        message=(f"We've received your return request for order {label} ({reason}). "
+                 "Our team will review it shortly."),
+        subject=f"Return request received — order {label}",
+        heading="We've got your return request",
+        intro=("Thanks — your request is with our team. We'll email you as soon as it's "
+               "reviewed, usually within a couple of working days."),
+        details=[("Reason", reason), ("Your note", return_request.comment),
+                 ("Request ID", f"#{return_request.id}")],
+    )
+    publish_order_status(order, previous_status=OrderStatus.delivered.value)
+    # Staff see it in their returns queue without refreshing.
+    publish([], "return_requested", {
+        "return_id": return_request.id,
+        "order_id": order.id,
+        "order_number": order.order_number,
+        "reason": return_request.reason,
+        "status": return_request.status.value,
+    }, include_staff=True)
+
+
+def return_approved(db: Session, order: Order, return_request, previous_status: str) -> None:
+    """Approved and refunded."""
+    label = _label(order)
+    cur = _currency(order)
+    amount = money(return_request.refund_amount or order.total, cur)
+    _deliver(
+        db, order, NotificationType.return_approved,
+        title=f"Return approved for order {label}",
+        message=(f"Your return for order {label} was approved and {amount} has been refunded."),
+        subject=f"Return approved — {amount} refunded for order {label}",
+        heading="Your return has been approved",
+        intro=("Good news — we've approved your return and issued the refund. Card refunds "
+               "usually appear within 5–10 working days, depending on your bank."),
+        details=[("Refunded", amount), ("Reference", return_request.refund_reference),
+                 ("Note from our team", return_request.decision_note)],
+    )
+    publish_order_status(order, previous_status)
+    publish([], "return_resolved", {
+        "return_id": return_request.id, "order_id": order.id, "status": "approved",
+    }, include_staff=True)
+
+
+def return_rejected(db: Session, order: Order, return_request, previous_status: str) -> None:
+    """Declined, with the reason the operator gave."""
+    label = _label(order)
+    _deliver(
+        db, order, NotificationType.return_rejected,
+        title=f"Return declined for order {label}",
+        message=(f"Your return request for order {label} wasn't approved."
+                 + (f" {return_request.decision_note}" if return_request.decision_note else "")),
+        subject=f"Return request declined — order {label}",
+        heading="We couldn't approve this return",
+        intro=("We've reviewed your request and can't accept this return. If you think this "
+               "is a mistake, reply to this email and we'll take another look."),
+        details=[("Reason given", return_request.decision_note)],
+    )
+    publish_order_status(order, previous_status)
+    publish([], "return_resolved", {
+        "return_id": return_request.id, "order_id": order.id, "status": "rejected",
+    }, include_staff=True)
 
 
 def order_status_changed(db: Session, order: Order, previous_status: str) -> None:

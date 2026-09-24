@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
-from .models import OrderStatus, PaymentStatus, UserRole
+from .models import OrderStatus, PaymentStatus, ReturnReason, ReturnStatus, UserRole
 
 
 # ---------- Auth ----------
@@ -166,8 +166,14 @@ class OrderOut(BaseModel):
     items: List[OrderItemOut]
     payment: Optional[PaymentOut] = None  # method + transaction id (stripe / cash)
     # What you may do with this order right now, so callers don't have to guess:
+    delivered_at: Optional[datetime] = None
     allowed_next_statuses: List[str] = []   # valid values for PUT /orders/{id}/status
     can_confirm_payment: bool = False       # whether POST /payments/confirm/{id} applies
+    # Returns: whether the "Request return" button applies, until when, and
+    # where any existing request stands.
+    can_request_return: bool = False
+    return_deadline: Optional[datetime] = None
+    return_status: Optional[str] = None
 
 
 class AdminOrderOut(OrderOut):
@@ -183,6 +189,51 @@ class AdminPaymentOut(PaymentOut):
 
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
+
+
+# ---------- Returns ----------
+class ReturnRequestCreate(BaseModel):
+    reason: ReturnReason = Field(
+        description="Why the order is coming back. Free text goes in `comment`."
+    )
+    comment: Optional[str] = Field(
+        default=None, max_length=1000,
+        description="Optional detail from the customer.",
+        examples=["The screen was cracked when the box arrived."],
+    )
+
+
+class ReturnDecision(BaseModel):
+    note: Optional[str] = Field(
+        default=None, max_length=1000,
+        description="Optional note for the customer — shown with the decision.",
+    )
+
+
+class ReturnRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    order_number: Optional[int] = None
+    user_id: int
+    reason: str
+    reason_label: Optional[str] = None
+    comment: Optional[str] = None
+    status: ReturnStatus
+    created_at: datetime
+    decided_at: Optional[datetime] = None
+    decision_note: Optional[str] = None
+    refund_amount: Optional[float] = None
+    refund_reference: Optional[str] = None
+    order_total: Optional[float] = None
+
+
+class AdminReturnOut(ReturnRequestOut):
+    """Return request with customer identity — for staff/admin listings."""
+    user_name: str
+    user_email: EmailStr
+    decided_by: Optional[str] = None
 
 
 class InvoiceOut(BaseModel):

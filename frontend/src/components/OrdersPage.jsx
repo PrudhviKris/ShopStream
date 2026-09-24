@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useStoreEvent } from "../live";
 import { isAdmin } from "../roles";
 import { formatMoney } from "../money";
+import { ReturnRequestModal, ReturnState, ReturnsQueue } from "./Returns";
 
 const TRACK_STEPS = ["pending", "paid", "shipped", "delivered"];
 
@@ -41,8 +42,17 @@ function Track({ status }) {
   );
 }
 
-function MyOrders({ orders, invoices, onShop }) {
+function MyOrders({ orders, invoices, onShop, notify, onChanged }) {
   const invoiceFor = (orderId) => (invoices || []).find((i) => i.order_id === orderId);
+  const [returns, setReturns] = useState([]);
+  const [returning, setReturning] = useState(null);   // the order being returned
+
+  const loadReturns = () => api.myReturns().then(setReturns).catch(() => {});
+  useEffect(() => { loadReturns(); }, [orders.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useStoreEvent(["return_resolved", "order_status_updated"], loadReturns, 400);
+
+  // The newest request per order is the one worth showing.
+  const returnFor = (orderId) => returns.find((r) => r.order_id === orderId);
   if (orders.length === 0) {
     return (
       <div className="panel empty">
@@ -75,6 +85,17 @@ function MyOrders({ orders, invoices, onShop }) {
             </div>
           )}
           <Track status={order.order_status} />
+          <ReturnState request={returnFor(order.id)} />
+          {order.can_request_return && (
+            <div className="order-actions">
+              <button className="btn btn-outline btn-sm" onClick={() => setReturning(order)}>
+                ↩ Request return
+              </button>
+              <span className="sub-note">
+                Delivered — you can return this until {new Date(order.return_deadline + "Z").toLocaleDateString()}.
+              </span>
+            </div>
+          )}
           {order.order_status === "pending" && order.payment_status === "pending" && (
             <span className="sub-note">
               {order.payment?.payment_method === "cash"
@@ -84,6 +105,14 @@ function MyOrders({ orders, invoices, onShop }) {
           )}
         </div>
       ))}
+      {returning && (
+        <ReturnRequestModal
+          order={returning}
+          notify={notify}
+          onClose={() => setReturning(null)}
+          onSubmitted={() => { setReturning(null); loadReturns(); onChanged?.(); }}
+        />
+      )}
     </div>
   );
 }
@@ -245,21 +274,24 @@ function AllOrders({ user, notify }) {
   );
 }
 
-export default function OrdersPage({ user, orders, invoices, canManage, onShop, notify }) {
+export default function OrdersPage({ user, orders, invoices, canManage, onShop, notify, onOrdersChanged }) {
   // Staff and admin shop here too, so they get both views: everyone's orders to
   // work through, and their own purchases as a customer.
   const [tab, setTab] = useState("all");
   const showingMine = !canManage || tab === "mine";
+  const showingReturns = canManage && tab === "returns";
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>{showingMine ? "My orders" : "Order management"}</h1>
+          <h1>{showingReturns ? "Returns" : showingMine ? "My orders" : "Order management"}</h1>
           <p>
-            {showingMine
-              ? "Track and manage your own purchases."
-              : "Every customer's order — update status or confirm payments."}
+            {showingReturns
+              ? "Return requests from customers — approve to refund and restock, or decline."
+              : showingMine
+                ? "Track and manage your own purchases."
+                : "Every customer's order — update status or confirm payments."}
           </p>
         </div>
         {canManage && (
@@ -267,15 +299,20 @@ export default function OrdersPage({ user, orders, invoices, canManage, onShop, 
             <button className={`tab ${tab === "all" ? "on" : ""}`} onClick={() => setTab("all")}>
               📋 All orders
             </button>
+            <button className={`tab ${tab === "returns" ? "on" : ""}`} onClick={() => setTab("returns")}>
+              ↩ Returns
+            </button>
             <button className={`tab ${tab === "mine" ? "on" : ""}`} onClick={() => setTab("mine")}>
               🛍️ My orders ({orders.length})
             </button>
           </div>
         )}
       </div>
-      {showingMine
-        ? <MyOrders orders={orders} invoices={invoices} onShop={onShop} />
-        : <AllOrders user={user} notify={notify} />}
+      {showingReturns
+        ? <ReturnsQueue notify={notify} />
+        : showingMine
+          ? <MyOrders orders={orders} invoices={invoices} onShop={onShop} notify={notify} onChanged={onOrdersChanged} />
+          : <AllOrders user={user} notify={notify} />}
     </>
   );
 }

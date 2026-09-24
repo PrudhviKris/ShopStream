@@ -153,6 +153,10 @@ class Settings:
     # false there and let migrations be the only thing that touches DDL.
     AUTO_CREATE_SCHEMA = os.getenv("AUTO_CREATE_SCHEMA", "true").lower() == "true"
 
+    # Returns: how long after delivery a customer may ask to send an order
+    # back. Staff still decide each request; this only controls the button.
+    RETURN_WINDOW_DAYS = int(os.getenv("RETURN_WINDOW_DAYS", "7"))
+
     # Cart
     TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))  # 8% default, set 0 to disable
 

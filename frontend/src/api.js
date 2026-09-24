@@ -112,6 +112,16 @@ export const api = {
   adminEmails: (params = {}) => request(`/admin/emails?${new URLSearchParams(params)}`),
   retryEmail: (id) => request(`/admin/emails/${id}/retry`, { method: "POST" }),
 
+  // ---- returns & refunds ----
+  returnReasons: () => request("/returns/reasons"),
+  requestReturn: (orderId, reason, comment) =>
+    request(`/orders/${orderId}/return`, { method: "POST", body: { reason, comment: comment || null } }),
+  myReturns: () => request("/returns"),
+  // staff/admin
+  allReturns: (status) => request(`/returns/all${status ? `?status=${status}` : ""}`),
+  approveReturn: (id, note) => request(`/returns/${id}/approve`, { method: "POST", body: { note: note || null } }),
+  rejectReturn: (id, note) => request(`/returns/${id}/reject`, { method: "POST", body: { note: note || null } }),
+
   // ---- invoices ----
   myInvoices: () => request("/invoices"),
 

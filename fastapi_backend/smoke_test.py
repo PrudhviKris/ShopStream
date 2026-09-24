@@ -14,6 +14,7 @@ leave demo data behind in the real database.
 """
 import os
 import uuid
+from datetime import datetime, timedelta
 
 # Force mock payments for the test run even when real Stripe keys are in .env —
 # the suite must not create real Stripe sessions. Set BEFORE importing the app.
@@ -163,6 +164,8 @@ def cleanup(user_ids):
             r[0] for r in db.execute(text(f"SELECT id FROM orders WHERE user_id IN ({placeholders})"))
         ]
         order_ph = ",".join(str(i) for i in order_ids) if order_ids else "NULL"
+        db.execute(text(f"DELETE FROM return_requests WHERE user_id IN ({placeholders}) "
+                        f"OR order_id IN ({order_ph})"))
         db.execute(text(f"DELETE FROM invoices WHERE order_id IN ({order_ph}) OR user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM payments WHERE order_id IN ({order_ph})"))
         db.execute(text(f"DELETE FROM order_items WHERE order_id IN ({order_ph})"))
@@ -737,6 +740,150 @@ try:
           client.post("/auth/login",
                       json={"email": f"smoke-off-{RUN_ID}@example.com", "password": "SmokePass123!"}
                       ).status_code == 200)
+
+    # ---- Returns and refunds ----
+    # A delivered order, bought and paid for by the customer.
+    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
+    ret_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{ret_order_id}", headers=staff_auth)
+    client.put(f"/orders/{ret_order_id}/status?status=shipped", headers=staff_auth)
+    client.put(f"/orders/{ret_order_id}/status?status=delivered", headers=staff_auth)
+
+    order = client.get(f"/orders/{ret_order_id}", headers=auth).json()
+    check("delivery is timestamped, and the order offers a return inside the window",
+          order["delivered_at"] is not None and order["can_request_return"] is True
+          and order["return_deadline"] is not None, str(order)[:200])
+    check("the return window is the configured number of days",
+          (datetime.fromisoformat(order["return_deadline"])
+           - datetime.fromisoformat(order["delivered_at"])).days == settings.RETURN_WINDOW_DAYS)
+
+    r = client.get("/returns/reasons")
+    check("the reason list is available for the storefront dropdown",
+          r.status_code == 200 and {"value": "damaged", "label": "Arrived damaged"} in r.json(), r.text)
+    check("an unknown reason is rejected",
+          client.post(f"/orders/{ret_order_id}/return", json={"reason": "because"},
+                      headers=auth).status_code == 422)
+
+    # Only the owner may open it, and only on a delivered order.
+    check("another customer cannot open a return on someone else's order",
+          client.post(f"/orders/{ret_order_id}/return", json={"reason": "damaged"},
+                      headers=other_auth).status_code == 403)
+    check("a pending order cannot be returned",
+          client.post(f"/orders/{fallback_order_id}/return", json={"reason": "damaged"},
+                      headers=auth).status_code in (403, 409))
+
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws, \
+            client.websocket_connect(f"/ws/notifications?token={staff_tokens['access_token']}") as staff_ws:
+        ws.receive_json(), staff_ws.receive_json()
+        r = client.post(f"/orders/{ret_order_id}/return",
+                        json={"reason": "damaged", "comment": "Screen cracked in transit."},
+                        headers=auth)
+        check("the customer opens a return request",
+              r.status_code == 201 and r.json()["status"] == "pending"
+              and r.json()["reason"] == "damaged"
+              and r.json()["reason_label"] == "Arrived damaged"
+              and r.json()["comment"] == "Screen cracked in transit.", r.text)
+        return_id = r.json()["id"]
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("the customer is notified that the request was received",
+              note is not None and note["data"]["type"] == "return_requested", str(seen))
+        queued, seen = receive_until(staff_ws, lambda m: m["event"] == "return_requested")
+        check("staff see the new request land in their queue live",
+              queued is not None and queued["data"]["return_id"] == return_id, str(seen))
+
+    order = client.get(f"/orders/{ret_order_id}", headers=auth).json()
+    check("the order moves to return_requested",
+          order["order_status"] == "return_requested" and order["return_status"] == "pending"
+          and order["can_request_return"] is False, str(order)[:200])
+    check("a second request is refused while one is open",
+          client.post(f"/orders/{ret_order_id}/return", json={"reason": "damaged"},
+                      headers=auth).status_code == 409)
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+    check("the customer gets a return-received email",
+          any(m.startswith("Return request received") for m in mails), str(mails[:3]))
+
+    check("the customer sees their own requests",
+          any(x["id"] == return_id for x in client.get("/returns", headers=auth).json()))
+    check("another customer cannot read it",
+          client.get(f"/returns/{return_id}", headers=other_auth).status_code == 403)
+    check("customers cannot open the staff queue",
+          client.get("/returns/all", headers=auth).status_code == 403)
+    queue = client.get("/returns/all", params={"status": "pending"}, headers=staff_auth)
+    check("staff queue lists it with the customer's identity",
+          queue.status_code == 200
+          and any(x["id"] == return_id and x["user_email"] == CUSTOMER_EMAIL for x in queue.json()),
+          queue.text[:200])
+    check("customers cannot approve their own return",
+          client.post(f"/returns/{return_id}/approve", headers=auth).status_code == 403)
+
+    # ---- Rejection puts the order back to delivered ----
+    r = client.post(f"/returns/{return_id}/reject", json={"note": "Outside our policy."},
+                    headers=staff_auth)
+    check("staff can reject a return",
+          r.status_code == 200 and r.json()["status"] == "rejected"
+          and r.json()["decision_note"] == "Outside our policy."
+          and r.json()["decided_by"] == "Smoke Staff", r.text)
+    order = client.get(f"/orders/{ret_order_id}", headers=auth).json()
+    check("a rejected return returns the order to delivered",
+          order["order_status"] == "delivered" and order["payment_status"] == "succeeded", str(order)[:160])
+    check("deciding twice is refused",
+          client.post(f"/returns/{return_id}/reject", headers=staff_auth).status_code == 409)
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+    check("the customer is emailed about the rejection",
+          any(m.startswith("Return request declined") for m in mails), str(mails[:3]))
+
+    # ---- Approval refunds the money and restocks the goods ----
+    ret_product_id = client.get(f"/orders/{ret_order_id}", headers=auth).json()["items"][0]["product_id"]
+    stock_before = client.get(f"/products/{ret_product_id}").json()["stock"]
+    r = client.post(f"/orders/{ret_order_id}/return", json={"reason": "wrong_item"}, headers=auth)
+    check("a return can be opened again after a rejection", r.status_code == 201, r.text)
+    second_id = r.json()["id"]
+
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+        ws.receive_json()
+        r = client.post(f"/returns/{second_id}/approve", json={"note": "Refunded in full."},
+                        headers=admin_auth)
+        check("staff approve the return and the refund is recorded",
+              r.status_code == 200 and r.json()["status"] == "approved"
+              and r.json()["refund_amount"] == order["total"]
+              and r.json()["refund_reference"], r.text)
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("the customer is notified of the approved refund",
+              note is not None and note["data"]["type"] == "return_approved", str(seen))
+
+    order = client.get(f"/orders/{ret_order_id}", headers=auth).json()
+    check("the order is returned and the payment refunded",
+          order["order_status"] == "returned" and order["payment_status"] == "refunded",
+          str(order)[:160])
+    check("the returned stock goes back on the shelf",
+          client.get(f"/products/{ret_product_id}").json()["stock"] == stock_before + 1)
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+    check("the customer is emailed about the refund",
+          any(m.startswith("Return approved") for m in mails), str(mails[:3]))
+    check("a returned order offers no further status moves",
+          client.get(f"/orders/{ret_order_id}/status-options", headers=staff_auth)
+          .json()["allowed_next_statuses"] == [])
+    check("and no new return can be opened on it",
+          client.post(f"/orders/{ret_order_id}/return", json={"reason": "damaged"},
+                      headers=auth).status_code == 409)
+
+    # Outside the window: a delivery backdated past the deadline.
+    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
+    old_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{old_order_id}", headers=staff_auth)
+    client.put(f"/orders/{old_order_id}/status?status=shipped", headers=staff_auth)
+    client.put(f"/orders/{old_order_id}/status?status=delivered", headers=staff_auth)
+    with SessionLocal() as _db:
+        _db.execute(text("UPDATE orders SET delivered_at = :d WHERE id = :id"),
+                    {"d": datetime.utcnow() - timedelta(days=settings.RETURN_WINDOW_DAYS + 1),
+                     "id": old_order_id})
+        _db.commit()
+    check("an order delivered outside the window offers no return",
+          client.get(f"/orders/{old_order_id}", headers=auth).json()["can_request_return"] is False)
+    r = client.post(f"/orders/{old_order_id}/return", json={"reason": "damaged"}, headers=auth)
+    check("and the API refuses it, naming the deadline",
+          r.status_code == 409 and "window" in r.json()["detail"], r.text)
+    client.delete(f"/orders/{old_order_id}", headers=admin_auth)
 
     # ---- Service token: the Django admin moving an order through the API ----
     # Same endpoint as the storefront, so the customer still gets the

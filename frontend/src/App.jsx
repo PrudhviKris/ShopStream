@@ -138,6 +138,8 @@ export default function App() {
         setCart(cartData);
       } else if (event === "order_status_updated" || event === "order_deleted") {
         if (event === "order_deleted" || data.user_id === userId) reloadMine();
+      } else if (event === "return_resolved") {
+        reloadMine();   // an approved return changes the order and its payment
       }
       emitStoreEvent(message);
     }
@@ -331,6 +333,7 @@ export default function App() {
               canManage={manage}
               onShop={() => setView("products")}
               notify={notify}
+              onOrdersChanged={() => api.orders().then(setOrders).catch(() => {})}
             />
           )}
 

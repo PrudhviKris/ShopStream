@@ -212,6 +212,20 @@ order lists, admin tables and analytics live.
 **Order lifecycle** — pending → paid → shipped → delivered (or cancelled), invalid
 transitions rejected; staff/admin update statuses, customers get notified in real time.
 
+**Returns & refunds** — a customer can request a return on a **delivered** order within
+`RETURN_WINDOW_DAYS` (7 by default, counted from delivery). `POST /orders/{id}/return`
+takes a `reason` and optional `comment`, creates a `ReturnRequest` (pending) and moves the
+order to `return_requested`. Staff work the queue with `POST /returns/{id}/approve|reject`:
+
+- **Approve** refunds the payment (a real Stripe refund for live card payments, a local
+  reference for cash/mock), puts the items back in stock, marks the order `returned` and
+  the payment `refunded`, and emails the customer.
+- **Reject** puts the order back to `delivered` with the note the operator wrote.
+
+The storefront shows a **Request return** button with the deadline on eligible orders and
+the live state of any request; staff get a **Returns** tab, and the Django admin has a
+read-only screen whose approve/decline actions call the same API.
+
 **Invoices** — issued automatically when a payment succeeds (`invoices` table,
 numbers like `INV-2026-00001`). Customers see their own (`GET /invoices`); admins see
 everyone's (`GET /invoices/all`) plus all payments (`GET /payments/all`) and all orders

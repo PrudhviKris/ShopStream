@@ -22,6 +22,7 @@ from .routers import (
     orders,
     payments,
     products,
+    returns,
 )
 from .hardening import (
     RateLimitMiddleware,
@@ -99,6 +100,11 @@ tags_metadata = [
      "`GET /dev/emails/summary` gives the unread count; `POST /dev/emails/read` marks emails read. "
      "With `EMAIL_BACKEND=smtp` mail is also delivered (SMTP, SendGrid or AWS SES) to Google "
      "accounts, and to local accounts only if `SMTP_SEND_TO_LOCAL_ACCOUNTS=true`."},
+    {"name": "Returns", "description": "Customer return requests and refunds. A customer opens "
+     "one on a delivered order within the return window "
+     "(`POST /orders/{order_id}/return`); staff approve or reject it "
+     "(`POST /returns/{id}/approve|reject`). Approving refunds the payment, restocks the items, "
+     "and emails the customer."},
     {"name": "Admin", "description": "**Admin only.** Store analytics for the dashboard, the user "
      "directory, and the log of every outgoing email."},
 ]
@@ -145,6 +151,7 @@ app.include_router(payments.router)
 app.include_router(invoices.router)
 app.include_router(notifications.router)
 app.include_router(dev_emails.router)
+app.include_router(returns.router)
 app.include_router(admin.router)
 
 

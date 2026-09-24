@@ -3,7 +3,7 @@
 A full-stack online store with a shop front, a JSON API, a staff admin panel,
 payments, real-time updates, email, analytics and reports.
 
-Built in six phases across 30 commits. This document walks through each phase:
+Built in seven phases. This document walks through each phase:
 what was asked for, what was built, and which tools were used.
 
 ---
@@ -163,7 +163,32 @@ for the project so no extra dependency is needed.
 
 ---
 
-## Phase 6 — Production readiness
+## Phase 6 — Returns and refunds
+
+**Goal:** let customers send things back, and staff handle the money.
+
+**What was built**
+
+- A **Request return** button on delivered orders in the storefront, shown only inside
+  the return window (7 days from delivery, configurable), with the deadline
+  spelled out. The customer picks a reason and can add a note.
+- A **ReturnRequest** record — order, customer, reason, comment, status,
+  timestamps — plus the refund amount, reference and who decided, so the money
+  has an audit trail.
+- **Order statuses** `return_requested` and `returned`, reachable only through
+  the return flow (never by a manual status flip), and a `delivered_at`
+  timestamp the window counts from.
+- **Staff queue** in the storefront and a read-only screen in the Django admin.
+  Approving **refunds the payment** (a real Stripe refund for live card
+  payments), **restocks the items**, and emails the customer; rejecting returns
+  the order to delivered with the operator's note.
+- Notifications, emails and live updates for all three moments — request,
+  approval, rejection — reusing the same event pipeline as the rest of the shop.
+
+**Tech:** FastAPI, SQLAlchemy, Stripe Refunds API, Alembic migration 0003,
+React modal + queue, Django admin actions through the service token.
+
+## Phase 7 — Production readiness
 
 **Goal:** something that can actually be deployed, not just demoed.
 
