@@ -867,6 +867,34 @@ try:
           client.post(f"/orders/{ret_order_id}/return", json={"reason": "damaged"},
                       headers=auth).status_code == 409)
 
+    # The Django admin decides returns with SERVICE_API_TOKEN, not a JWT — the
+    # same door the order-status endpoint opens. Without this the admin's
+    # approve/decline actions could never work.
+    from unittest.mock import patch as _rp
+
+    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
+    svc_ret_order = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{svc_ret_order}", headers=staff_auth)
+    client.put(f"/orders/{svc_ret_order}/status?status=shipped", headers=staff_auth)
+    client.put(f"/orders/{svc_ret_order}/status?status=delivered", headers=staff_auth)
+    svc_ret_id = client.post(f"/orders/{svc_ret_order}/return",
+                             json={"reason": "missing_parts"}, headers=auth).json()["id"]
+
+    check("an unauthenticated caller cannot decide a return",
+          client.post(f"/returns/{svc_ret_id}/approve").status_code == 401)
+    with _rp.object(settings, "SERVICE_API_TOKEN", "test-service-token"):
+        check("a wrong service token is rejected on returns",
+              client.post(f"/returns/{svc_ret_id}/reject",
+                          headers={"X-Service-Token": "nope"}).status_code == 401)
+        r = client.post(f"/returns/{svc_ret_id}/approve", json={"note": "Approved from /admin/."},
+                        headers={"X-Service-Token": "test-service-token"})
+        check("the Django admin's service token can approve and refund a return",
+              r.status_code == 200 and r.json()["status"] == "approved"
+              and r.json()["refund_reference"] and r.json()["decided_by"] is None, r.text)
+    check("that order is returned and refunded",
+          client.get(f"/orders/{svc_ret_order}", headers=auth).json()["payment_status"] == "refunded")
+    client.delete(f"/orders/{svc_ret_order}", headers=admin_auth)
+
     # Outside the window: a delivery backdated past the deadline.
     client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
     old_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]

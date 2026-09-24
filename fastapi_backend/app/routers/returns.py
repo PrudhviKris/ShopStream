@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..deps import get_current_user, require_staff_or_admin
+from ..deps import get_current_user, require_staff_or_admin, staff_admin_or_service
 from ..models import (
     RETURN_REASONS,
     Order,
@@ -133,7 +133,10 @@ def approve_return(
     return_id: int,
     body: Optional[ReturnDecision] = None,
     db: Session = Depends(get_db),
-    staff: User = Depends(require_staff_or_admin),
+    # Staff/admin by JWT, or the Django admin with SERVICE_API_TOKEN — the
+    # same door the order-status endpoint opens, so a decision made in
+    # /admin/ refunds and emails exactly like one made in the storefront.
+    staff: Optional[User] = Depends(staff_admin_or_service),
 ):
     """Staff/admin: approve a return, refund the payment, restock the items.
 
@@ -162,7 +165,7 @@ def approve_return(
     previous_status = order.order_status.value
     request.status = ReturnStatus.approved
     request.decided_at = datetime.utcnow()
-    request.decided_by_id = staff.id
+    request.decided_by_id = staff.id if staff else None   # None = via the admin service token
     request.decision_note = body.note if body else None
     request.refund_amount = amount
     request.refund_reference = refund["reference"]
@@ -190,7 +193,7 @@ def reject_return(
     return_id: int,
     body: Optional[ReturnDecision] = None,
     db: Session = Depends(get_db),
-    staff: User = Depends(require_staff_or_admin),
+    staff: Optional[User] = Depends(staff_admin_or_service),
 ):
     """Staff/admin: decline a return. The order goes back to delivered."""
     request = _load(db, return_id)
@@ -200,7 +203,7 @@ def reject_return(
     previous_status = order.order_status.value
     request.status = ReturnStatus.rejected
     request.decided_at = datetime.utcnow()
-    request.decided_by_id = staff.id
+    request.decided_by_id = staff.id if staff else None
     request.decision_note = body.note if body else None
     order.order_status = OrderStatus.delivered
 
