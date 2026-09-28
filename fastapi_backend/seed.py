@@ -40,6 +40,25 @@ PRODUCTS = [
     ("Samsung Galaxy A55 5G", "6.6\" Super AMOLED, 50MP OIS camera, 5000mAh", "electronics", 39999, 60, 430),
     ("Samsung Galaxy M35 5G", "6.6\" 120Hz display, 6000mAh battery", "electronics", 19999, 80, 380),
 
+    # ---- iPhone lineup: every model, one variant each ----
+    # (15 128GB, 15 Pro Max 256GB and SE 3rd gen 64GB are seeded above already)
+    ("iPhone 11 64GB (Black)", "6.1\" Liquid Retina HD, A13 Bionic, dual 12MP camera", "electronics", 29999, 40, 260),
+    ("iPhone 11 Pro 256GB (Midnight Green)", "5.8\" Super Retina XDR, A13 Bionic, triple camera", "electronics", 54900, 22, 190),
+    ("iPhone 11 Pro Max 256GB (Space Gray)", "6.5\" Super Retina XDR, A13 Bionic, 4h longer battery", "electronics", 59900, 18, 170),
+    ("iPhone 12 Mini 128GB (Blue)", "5.4\" Super Retina XDR, A14 Bionic, Ceramic Shield", "electronics", 39900, 28, 220),
+    ("iPhone 12 128GB (Black)", "6.1\" Super Retina XDR, A14 Bionic, 5G", "electronics", 44900, 35, 300),
+    ("iPhone 12 Pro 256GB (Pacific Blue)", "6.1\" Super Retina XDR, A14 Bionic, LiDAR scanner", "electronics", 64900, 20, 210),
+    ("iPhone 12 Pro Max 256GB (Graphite)", "6.7\" Super Retina XDR, A14 Bionic, sensor-shift OIS", "electronics", 74900, 16, 180),
+    ("iPhone 13 Mini 128GB (Pink)", "5.4\" Super Retina XDR, A15 Bionic, dual-camera system", "electronics", 44900, 30, 260),
+    ("iPhone 13 256GB (Black)", "6.1\" Super Retina XDR, A15 Bionic, cinematic mode", "electronics", 59900, 38, 420),
+    ("iPhone 13 Pro 256GB (Sierra Blue)", "6.1\" Super Retina XDR ProMotion 120Hz, A15 Bionic, 3x telephoto", "electronics", 84900, 24, 340),
+    ("iPhone 13 Pro Max 256GB (Graphite)", "6.7\" Super Retina XDR ProMotion 120Hz, A15 Bionic, best-in-class battery", "electronics", 94900, 20, 300),
+    ("iPhone 14 Plus 128GB (Blue)", "6.7\" Super Retina XDR, A15 Bionic, Crash Detection", "electronics", 79900, 26, 280),
+    ("iPhone 14 Pro 256GB (Deep Purple)", "6.1\" Super Retina XDR, Dynamic Island, A16 Bionic, 48MP main", "electronics", 109900, 22, 360),
+    ("iPhone 14 Pro Max 256GB (Space Black)", "6.7\" Super Retina XDR, Dynamic Island, A16 Bionic, Always-On display", "electronics", 129900, 16, 320),
+    ("iPhone 15 Plus 128GB (Pink)", "6.7\" Super Retina XDR, Dynamic Island, USB-C, A16 Bionic", "electronics", 89900, 24, 300),
+    ("iPhone 15 Pro 256GB (Natural Titanium)", "6.1\" titanium, A17 Pro chip, Action button, USB-C", "electronics", 134900, 18, 400),
+
     # ---- Headsets ----
     ("Sony WH-1000XM5", "Industry-leading ANC over-ear headphones, 30h battery", "electronics", 29990, 45, 760),
     ("Bose QuietComfort Ultra", "Spatial audio over-ear headphones with world-class ANC", "electronics", 34900, 22, 410),
@@ -52,6 +71,14 @@ PRODUCTS = [
     ("HP Pavilion 15", "Intel Core i5 13th gen, 16GB RAM, 512GB SSD, FHD display", "electronics", 62999, 28, 350),
     ("Lenovo IdeaPad Slim 5", "AMD Ryzen 7, 16GB RAM, 512GB SSD, 14\" WUXGA", "electronics", 58990, 32, 320),
     ("Dell Inspiron 15", "Intel Core i5, 8GB RAM, 512GB SSD, 15.6\" FHD", "electronics", 52990, 26, 290),
+    ("Apple MacBook Pro 16\" M3 Pro", "12-core CPU, 18-core GPU, 18GB memory, 512GB SSD, 16.2\" Liquid Retina XDR", "electronics", 249900, 8, 260),
+    ("Apple MacBook Air 15\" M2", "8-core CPU, 8GB unified memory, 256GB SSD, 15.3\" Liquid Retina", "electronics", 134900, 14, 310),
+    ("Dell XPS 13", "Intel Core i7 13th gen, 16GB RAM, 512GB SSD, 13.4\" InfinityEdge", "electronics", 119990, 15, 240),
+    ("HP Spectre x360 14", "Intel Core i7, 16GB RAM, 1TB SSD, 2-in-1 OLED touchscreen", "electronics", 149999, 10, 190),
+    ("Lenovo Legion 5", "AMD Ryzen 7, RTX 4060, 16GB RAM, 512GB SSD, 165Hz display", "electronics", 99990, 18, 350),
+    ("ASUS ROG Strix G16", "Intel Core i7 13th gen, RTX 4070, 16GB RAM, 1TB SSD, 165Hz display", "electronics", 134990, 12, 300),
+    ("Acer Aspire 5", "AMD Ryzen 5, 8GB RAM, 512GB SSD, 15.6\" FHD", "electronics", 42990, 34, 270),
+    ("ASUS VivoBook 15", "Intel Core i5 12th gen, 16GB RAM, 512GB SSD, 15.6\" FHD", "electronics", 47990, 30, 230),
 
     # ---- Smart watches ----
     ("Apple Watch Series 9 GPS 45mm", "Always-On Retina display, ECG, blood oxygen", "electronics", 41900, 30, 580),
@@ -66,6 +93,15 @@ PRODUCTS = [
     ("Apple AirPods Pro (2nd gen)", "Active noise cancellation, USB-C charging case", "electronics", 24900, 55, 810),
     ("Logitech MX Master 3S", "8K DPI silent wireless mouse, multi-device", "electronics", 9995, 70, 400),
     ("SanDisk Extreme 1TB Portable SSD", "1050MB/s read, IP55 water and dust resistant", "electronics", 8499, 65, 330),
+
+    # ---- Large appliances ----
+    ("Voltas 1.5 Ton 5 Star Inverter Split AC", "Copper condenser, anti-dust filter, turbo cooling", "electronics", 38990, 20, 410),
+    ("LG 260L Frost-Free Double Door Refrigerator", "3 star, smart inverter compressor, convertible freezer", "electronics", 27990, 18, 380),
+    ("Samsung 65L Convection Microwave Oven", "SlimFry technology, ceramic interior, auto-cook menus", "electronics", 14990, 32, 250),
+    ("Whirlpool 7kg Front-Load Washing Machine", "1200 RPM, 6th Sense inverter motor, steam wash", "electronics", 26990, 20, 220),
+    ("Mi 55\" Smart LED TV", "4K UHD, Dolby Vision & Atmos, Android TV, 3 HDMI ports", "electronics", 34999, 24, 390),
+    ("Philips Air Purifier AC1215", "HEPA filter, removes 99.9% pollutants, covers up to 234 sq ft", "electronics", 8999, 40, 200),
+    ("Kent Grand Plus RO Water Purifier", "8L storage, RO+UV+UF purification, TDS control", "electronics", 15999, 28, 230),
 
     # ---- Original catalog, repriced in rupees ----
     ("Wireless Mouse", "Ergonomic 2.4GHz wireless mouse", "electronics", 1299, 150, 320),

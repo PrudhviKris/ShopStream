@@ -64,8 +64,10 @@ to do different things.
 - Per-user cart with stock checks and automatic totals, tax and grand total.
 - A designed React storefront: split-screen sign-in, role-aware navigation,
   dashboard, product grid, cart drawer.
-- 37 products priced in **Indian Rupees**, including a 25-item electronics
-  range (iPhones, Samsung, laptops, headsets, smartwatches, power banks).
+- 68 products priced in **Indian Rupees**, including the full iPhone lineup
+  (11 through 15, every model with one variant each), Samsung phones, 13
+  laptops, headsets, smartwatches, power banks and large appliances (AC,
+  refrigerator, washing machine, microwave, TV, air and water purifiers).
 - The API serves the built React app, so `http://127.0.0.1:8000` is the shop
   and `/docs` is the API documentation.
 
