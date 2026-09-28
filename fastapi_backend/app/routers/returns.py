@@ -212,3 +212,45 @@ def reject_return(
     db.refresh(request)
     order_events.return_rejected(db, order, request, previous_status)
     return serialize(request, admin=True)
+
+
+# ---------- /admin/returns aliases ----------
+#
+# Same behaviour as the /returns endpoints above (these call straight through
+# to them), registered a second time under /admin/returns so the literal path
+# from the spec exists too. Kept as thin wrappers rather than a second
+# implementation, so there is exactly one place the return lifecycle logic
+# can drift.
+admin_router = APIRouter(prefix="/admin/returns", tags=["Returns"])
+
+
+@admin_router.get("", response_model=List[AdminReturnOut])
+def admin_list_returns(
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_or_admin),
+    status: Optional[ReturnStatus] = Query(default=None, description="Filter by decision state."),
+):
+    """Alias of GET /returns/all. Staff/admin: every return request."""
+    return all_returns(db=db, _staff=_staff, status=status)
+
+
+@admin_router.post("/{return_id}/approve", response_model=AdminReturnOut)
+def admin_approve_return(
+    return_id: int,
+    body: Optional[ReturnDecision] = None,
+    db: Session = Depends(get_db),
+    staff: Optional[User] = Depends(staff_admin_or_service),
+):
+    """Alias of POST /returns/{return_id}/approve."""
+    return approve_return(return_id=return_id, body=body, db=db, staff=staff)
+
+
+@admin_router.post("/{return_id}/reject", response_model=AdminReturnOut)
+def admin_reject_return(
+    return_id: int,
+    body: Optional[ReturnDecision] = None,
+    db: Session = Depends(get_db),
+    staff: Optional[User] = Depends(staff_admin_or_service),
+):
+    """Alias of POST /returns/{return_id}/reject."""
+    return reject_return(return_id=return_id, body=body, db=db, staff=staff)

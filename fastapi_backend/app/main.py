@@ -152,6 +152,7 @@ app.include_router(invoices.router)
 app.include_router(notifications.router)
 app.include_router(dev_emails.router)
 app.include_router(returns.router)
+app.include_router(returns.admin_router)
 app.include_router(admin.router)
 
 

@@ -215,7 +215,9 @@ transitions rejected; staff/admin update statuses, customers get notified in rea
 **Returns & refunds** — a customer can request a return on a **delivered** order within
 `RETURN_WINDOW_DAYS` (7 by default, counted from delivery). `POST /orders/{id}/return`
 takes a `reason` and optional `comment`, creates a `ReturnRequest` (pending) and moves the
-order to `return_requested`. Staff work the queue with `POST /returns/{id}/approve|reject`:
+order to `return_requested`. Staff work the queue with `POST /returns/{id}/approve|reject`
+(identical aliases also exist at `GET /admin/returns` and `POST /admin/returns/{id}/approve|reject`,
+so both URL styles work):
 
 - **Approve** refunds the payment (a real Stripe refund for live card payments, a local
   reference for cash/mock), puts the items back in stock, marks the order `returned` and
