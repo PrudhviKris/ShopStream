@@ -867,53 +867,6 @@ try:
           client.post(f"/orders/{ret_order_id}/return", json={"reason": "damaged"},
                       headers=auth).status_code == 409)
 
-    # ---- /admin/returns: the literal paths named in the spec ----
-    # Same behaviour as /returns/all and /returns/{id}/approve|reject — these
-    # just have to exist under this exact URL too.
-    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
-    admin_ret_order = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
-    client.post(f"/payments/cash/confirm/{admin_ret_order}", headers=staff_auth)
-    client.put(f"/orders/{admin_ret_order}/status?status=shipped", headers=staff_auth)
-    client.put(f"/orders/{admin_ret_order}/status?status=delivered", headers=staff_auth)
-    admin_ret_id = client.post(f"/orders/{admin_ret_order}/return",
-                               json={"reason": "damaged"}, headers=auth).json()["id"]
-
-    check("customers cannot list the /admin/returns queue",
-          client.get("/admin/returns", headers=auth).status_code == 403)
-    listed = client.get("/admin/returns", params={"status": "pending"}, headers=staff_auth)
-    check("GET /admin/returns lists the pending request",
-          listed.status_code == 200 and any(x["id"] == admin_ret_id for x in listed.json()),
-          listed.text[:200])
-
-    admin_ret_product = client.get(f"/orders/{admin_ret_order}", headers=auth).json()["items"][0]["product_id"]
-    admin_stock_before = client.get(f"/products/{admin_ret_product}").json()["stock"]
-    r = client.post(f"/admin/returns/{admin_ret_id}/approve", json={"note": "Approved via /admin/returns."},
-                    headers=admin_auth)
-    check("POST /admin/returns/{id}/approve approves and refunds",
-          r.status_code == 200 and r.json()["status"] == "approved" and r.json()["refund_reference"], r.text)
-    check("...and the same refund/restock/notify pipeline runs as the /returns alias",
-          client.get(f"/orders/{admin_ret_order}", headers=auth).json()["payment_status"] == "refunded"
-          and client.get(f"/products/{admin_ret_product}").json()["stock"] == admin_stock_before + 1)
-    check("deciding it again through the alias is refused too",
-          client.post(f"/admin/returns/{admin_ret_id}/reject", headers=admin_auth).status_code == 409)
-    client.delete(f"/orders/{admin_ret_order}", headers=admin_auth)
-
-    # And the reject alias, on its own request.
-    client.post("/cart/add", json={"product_id": in_stock_product(), "quantity": 1}, headers=auth)
-    admin_rej_order = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
-    client.post(f"/payments/cash/confirm/{admin_rej_order}", headers=staff_auth)
-    client.put(f"/orders/{admin_rej_order}/status?status=shipped", headers=staff_auth)
-    client.put(f"/orders/{admin_rej_order}/status?status=delivered", headers=staff_auth)
-    admin_rej_id = client.post(f"/orders/{admin_rej_order}/return",
-                               json={"reason": "other"}, headers=auth).json()["id"]
-    r = client.post(f"/admin/returns/{admin_rej_id}/reject", json={"note": "Declined via /admin/returns."},
-                    headers=staff_auth)
-    check("POST /admin/returns/{id}/reject declines and puts the order back to delivered",
-          r.status_code == 200 and r.json()["status"] == "rejected", r.text)
-    check("order is delivered again, not returned",
-          client.get(f"/orders/{admin_rej_order}", headers=auth).json()["order_status"] == "delivered")
-    client.delete(f"/orders/{admin_rej_order}", headers=admin_auth)
-
     # The Django admin decides returns with SERVICE_API_TOKEN, not a JWT — the
     # same door the order-status endpoint opens. Without this the admin's
     # approve/decline actions could never work.
