@@ -1,9 +1,11 @@
 import enum
 from datetime import datetime, timedelta
+from typing import Optional
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum,
@@ -100,6 +102,21 @@ class Product(Base):
     images = Column(JSON, default=list)  # list of image URLs
     popularity = Column(Integer, default=0, nullable=False)  # units sold, drives sorting
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    reviews = relationship("Review", back_populates="product")
+
+    @property
+    def approved_reviews(self) -> list:
+        return [r for r in self.reviews if r.status == ReviewStatus.approved]
+
+    @property
+    def average_rating(self) -> Optional[float]:
+        approved = self.approved_reviews
+        return round(sum(r.rating for r in approved) / len(approved), 1) if approved else None
+
+    @property
+    def review_count(self) -> int:
+        return len(self.approved_reviews)
 
 
 class CartItem(Base):
@@ -442,3 +459,35 @@ RETURN_REASONS = {
     ReturnReason.no_longer_needed.value: "No longer needed",
     ReturnReason.other.value: "Other",
 }
+
+
+class ReviewStatus(str, enum.Enum):
+    pending = "pending"    # just submitted, awaiting moderation
+    approved = "approved"  # visible on the product page and counted in the average
+    rejected = "rejected"  # declined (spam, abuse, off-topic) — never shown
+
+
+class Review(Base):
+    """A star rating + comment a customer leaves on a product.
+
+    Only counts towards the product's average and appears on its page once
+    `status` is approved — see routers/reviews.py for who is allowed to
+    submit one and how a submission is moderated.
+    """
+
+    __tablename__ = "reviews"
+    __table_args__ = (
+        UniqueConstraint("user_id", "product_id", name="uq_review_user_product"),
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating_range"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    rating = Column(Integer, nullable=False)  # 1-5, enforced by the CHECK constraint above too
+    comment = Column(Text, nullable=True)
+    status = Column(Enum(ReviewStatus), default=ReviewStatus.pending, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User")
+    product = relationship("Product", back_populates="reviews")

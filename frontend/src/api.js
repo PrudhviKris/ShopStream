@@ -122,6 +122,16 @@ export const api = {
   approveReturn: (id, note) => request(`/returns/${id}/approve`, { method: "POST", body: { note: note || null } }),
   rejectReturn: (id, note) => request(`/returns/${id}/reject`, { method: "POST", body: { note: note || null } }),
 
+  // ---- reviews & ratings ----
+  productReviews: (productId, sort = "recent") => request(`/products/${productId}/reviews?sort=${sort}`),
+  myReviewEligibility: (productId) => request(`/products/${productId}/reviews/mine`),
+  createReview: (product_id, rating, comment) =>
+    request("/reviews", { method: "POST", body: { product_id, rating, comment: comment || null } }),
+  // staff/admin
+  allReviews: (status) => request(`/reviews/all${status ? `?status=${status}` : ""}`),
+  approveReview: (id) => request(`/reviews/${id}/approve`, { method: "POST" }),
+  rejectReview: (id) => request(`/reviews/${id}/reject`, { method: "POST" }),
+
   // ---- invoices ----
   myInvoices: () => request("/invoices"),
 

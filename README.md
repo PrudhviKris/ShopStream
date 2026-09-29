@@ -227,6 +227,21 @@ The storefront shows a **Request return** button with the deadline on eligible o
 the live state of any request; staff get a **Returns** tab, and the Django admin has a
 read-only screen whose approve/decline actions call the same API.
 
+**Reviews & ratings** — a customer can rate and review a product once they've actually
+received it: `POST /reviews` requires a **delivered** order containing that product, and
+only one review per product per customer. A new review starts `pending`; staff moderate
+with `GET /reviews/all` (`?status=pending` is the queue) and
+`POST /reviews/{id}/approve|reject`. Only `approved` reviews count towards a product's
+average rating or show up on its page.
+
+`GET /products/{id}/reviews` returns the approved reviews plus the average rating and
+total count (computed over every approved review, not just the page shown), with
+`?sort=recent` (default) or `?sort=top`. `GET /products/{id}/reviews/mine` tells the
+storefront whether the signed-in customer may leave a review right now, and their existing
+one if they already have. The product page shows a star rating badge on every card, and
+the product detail view shows the full breakdown: average + count, a write-a-review form
+gated by eligibility, and the review list with a recent/top toggle.
+
 **Display numbers** — every department has a friendly number that counts 1, 2, 3 with
 no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`) and Return #. They
 come from the `sequences` table, which only advances when a row is actually committed —
@@ -317,7 +332,7 @@ origins stable.
   new one, `alembic check` reports drift. In containers `AUTO_CREATE_SCHEMA=false`, so
   migrations are the only thing that changes the schema. Django's `manage.py migrate`
   still creates its own auth/session tables.
-- **Postman:** [docs/postman_collection.json](docs/postman_collection.json) — 51 requests
+- **Postman:** [docs/postman_collection.json](docs/postman_collection.json) — 64 requests
   in 11 folders, generated from the OpenAPI schema by
   `python tools/generate_postman.py`. Import it, set `base_url`, run
   **Authentication → Login** and the tokens are stored for every other request.
@@ -332,16 +347,17 @@ origins stable.
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
-- `fastapi_backend/smoke_test.py` — 228 end-to-end checks (auth, role promotion via direct
+- `fastapi_backend/smoke_test.py` — 300 end-to-end checks (auth, role promotion via direct
   MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, notification
   types and `POST /notifications/read`, WebSocket `order_status_updated` / `cart_updated`
-  events, emails on both backends including SMTP failure and retry, admin analytics/users/
-  email APIs, the user inbox, account deactivation, security headers, the auth rate
-  limit and the production config guard) against the configured database:
+  events, emails on both backends including SMTP failure and retry, returns and refunds,
+  reviews and ratings, admin analytics/users/email APIs, the user inbox, account
+  deactivation, security headers, the auth rate limit and the production config guard)
+  against the configured database:
   `python smoke_test.py`. It restores stock, popularity and the display-number
   counters afterwards, so it leaves the database exactly as it found it.
 
-- `django_admin`: `python manage.py test analytics` — 46 tests covering the admin
+- `django_admin`: `python manage.py test analytics` — 58 tests covering the admin
   screens (users, products with image upload, orders), the Chart.js dashboard, the
   CSV/PDF exports and the PDF writer itself. It registers its own
   throwaway users and deletes them again when it finishes, so it never leaves demo data

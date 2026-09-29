@@ -1,12 +1,21 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..deps import require_staff_or_admin
-from ..models import OrderItem, Product, User
-from ..schemas import ProductCreate, ProductList, ProductOut, ProductUpdate
+from ..deps import get_current_user, require_staff_or_admin
+from ..models import OrderItem, Product, Review, ReviewStatus, User
+from ..schemas import (
+    ProductCreate,
+    ProductList,
+    ProductOut,
+    ProductReviewsOut,
+    ProductUpdate,
+    ReviewEligibilityOut,
+)
+from .reviews import has_delivered_order
+from .reviews import serialize as serialize_review
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -87,6 +96,82 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return product
+
+
+# ---------- Reviews & ratings ----------
+@router.get("/{product_id}/reviews", response_model=ProductReviewsOut)
+def product_reviews(
+    product_id: int,
+    db: Session = Depends(get_db),
+    sort: str = Query(default="recent", pattern="^(recent|top)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Approved reviews for this product, plus the average rating and total
+    count the star display is built from.
+
+    `?sort=recent` (default) is newest first, for the full review list.
+    `?sort=top` is highest-rated first, for a "Top reviews" section — the
+    average and total still reflect every approved review, not just the ones
+    `limit` returns.
+    """
+    product = db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    order_by = (
+        (Review.rating.desc(), Review.created_at.desc(), Review.id.desc())
+        if sort == "top"
+        else (Review.created_at.desc(), Review.id.desc())
+    )
+    reviews = (
+        db.query(Review)
+        .options(joinedload(Review.user))
+        .filter(Review.product_id == product_id, Review.status == ReviewStatus.approved)
+        .order_by(*order_by)
+        .limit(limit)
+        .all()
+    )
+    return ProductReviewsOut(
+        product_id=product_id,
+        average_rating=product.average_rating,
+        total_reviews=product.review_count,
+        items=[serialize_review(r) for r in reviews],
+    )
+
+
+@router.get("/{product_id}/reviews/mine", response_model=ReviewEligibilityOut)
+def my_review_eligibility(
+    product_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Whether you may leave a review on this product right now, and your
+    existing review (any status) if you already have — drives the "Write a
+    review" button on the product page."""
+    product = db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    existing = (
+        db.query(Review)
+        .options(joinedload(Review.user))
+        .filter(Review.user_id == user.id, Review.product_id == product_id)
+        .first()
+    )
+    if existing is not None:
+        return ReviewEligibilityOut(
+            can_review=False,
+            reason="You have already reviewed this product.",
+            review=serialize_review(existing),
+        )
+
+    if not has_delivered_order(db, user.id, product_id):
+        return ReviewEligibilityOut(
+            can_review=False,
+            reason="Only customers who have received this product can review it.",
+        )
+
+    return ReviewEligibilityOut(can_review=True)
 
 
 # ---------- Product management: staff & admin (RBAC) ----------

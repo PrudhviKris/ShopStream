@@ -84,8 +84,8 @@ Open both.
 ### 9. Tests (30 s) — *screenshot: the passing summary*
 
 ```bash
-cd fastapi_backend && python smoke_test.py      # 228 checks
-cd django_admin && python manage.py test analytics   # 46 tests
+cd fastapi_backend && python smoke_test.py      # 300 checks
+cd django_admin && python manage.py test analytics   # 58 tests
 ```
 
 Worth saying out loud: the suite creates its own users and deletes them

@@ -311,6 +311,28 @@ h1, h2, h3 { font-family: var(--font-display); }
 .qty span { width: 36px; text-align: center; font-weight: 700; }
 .qty-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 
+/* ---------- Reviews & ratings ---------- */
+.stars { color: var(--line); letter-spacing: 1px; white-space: nowrap; }
+.stars .star { color: var(--line); }
+.stars .star.full { color: var(--warning); }
+.stars .star.half { color: var(--warning); opacity: 0.5; }
+.stars.picker .star { cursor: pointer; }
+.rating-summary { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.rating-empty { display: block; margin: 2px 0 6px; }
+.reviews-section { grid-column: 1 / -1; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.reviews-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.reviews-head h3 { margin: 0; font: 700 16px var(--font-display); }
+.review-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.review-form textarea { resize: vertical; }
+.review-mine { margin-bottom: 14px; }
+.review-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.review-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.review-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.review-item p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.badge.review-pending { background: var(--warning-soft); color: var(--warning); }
+.badge.review-approved { background: var(--success-soft); color: var(--success); }
+.badge.review-rejected { background: var(--danger-soft); color: var(--danger); }
+
 /* ---------- Cart drawer ---------- */
 .drawer { position: fixed; inset: 0; z-index: 70; }
 .drawer-backdrop { position: absolute; inset: 0; background: rgba(13, 16, 32, 0.66); }

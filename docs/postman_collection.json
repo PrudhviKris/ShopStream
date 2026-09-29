@@ -1544,6 +1544,74 @@
           }
         },
         {
+          "name": "Product Reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}/reviews",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}",
+                "reviews"
+              ],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "recent",
+                  "description": "recent (newest first, default) or top (highest-rated first).",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Max reviews to return (1-200, default 50). The average and total always reflect every approved review.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Approved reviews for this product, plus the average rating and total\ncount the star display is built from."
+          }
+        },
+        {
+          "name": "My Review Eligibility",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}/reviews/mine",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}",
+                "reviews",
+                "mine"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Whether you may leave a review on this product right now, and your\nexisting review (any status) if you already have — drives the \"Write a\nreview\" button on the product page."
+          }
+        },
+        {
           "name": "Update Product",
           "request": {
             "method": "PUT",
@@ -1758,6 +1826,131 @@
               ]
             },
             "description": "Staff/admin: decline a return. The order goes back to delivered."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Create Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/reviews",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reviews"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "description": "Rate and review a product you've received.\n\nRequires a **delivered** order containing this product, and only one\nreview per product per customer. Starts `pending` — it appears on the\nproduct page once staff approve it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"rating\": 5,\n  \"comment\": \"Great battery life, camera is a big step up from my old phone.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "All Reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/reviews/all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reviews",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Filter by moderation state (pending/approved/rejected). ?status=pending is the moderation queue.",
+                  "disabled": true
+                },
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": "Only this product's reviews.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Staff/admin: every review."
+          }
+        },
+        {
+          "name": "Approve Review",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/reviews/{review_id}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reviews",
+                "{review_id}",
+                "approve"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "review_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin: publish a review — it now counts in the product's average."
+          }
+        },
+        {
+          "name": "Reject Review",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/reviews/{review_id}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reviews",
+                "{review_id}",
+                "reject"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "review_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Staff/admin: decline a review (spam, abuse, off-topic) — it stays hidden."
           }
         }
       ]

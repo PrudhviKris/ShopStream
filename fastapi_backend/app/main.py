@@ -23,6 +23,7 @@ from .routers import (
     payments,
     products,
     returns,
+    reviews,
 )
 from .hardening import (
     RateLimitMiddleware,
@@ -105,6 +106,11 @@ tags_metadata = [
      "(`POST /orders/{order_id}/return`); staff approve or reject it "
      "(`POST /returns/{id}/approve|reject`). Approving refunds the payment, restocks the items, "
      "and emails the customer."},
+    {"name": "Reviews", "description": "Star ratings and comments on products. `POST /reviews` "
+     "requires a **delivered** order containing the product, and one review per product per "
+     "customer; it starts `pending`. `GET /products/{id}/reviews` returns only the `approved` "
+     "ones plus the average rating and total count. Staff moderate with `GET /reviews/all` and "
+     "`POST /reviews/{id}/approve|reject`."},
     {"name": "Admin", "description": "**Admin only.** Store analytics for the dashboard, the user "
      "directory, and the log of every outgoing email."},
 ]
@@ -152,6 +158,7 @@ app.include_router(invoices.router)
 app.include_router(notifications.router)
 app.include_router(dev_emails.router)
 app.include_router(returns.router)
+app.include_router(reviews.router)
 app.include_router(admin.router)
 
 

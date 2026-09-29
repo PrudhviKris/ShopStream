@@ -166,6 +166,7 @@ def cleanup(user_ids):
         order_ph = ",".join(str(i) for i in order_ids) if order_ids else "NULL"
         db.execute(text(f"DELETE FROM return_requests WHERE user_id IN ({placeholders}) "
                         f"OR order_id IN ({order_ph})"))
+        db.execute(text(f"DELETE FROM reviews WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM invoices WHERE order_id IN ({order_ph}) OR user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM payments WHERE order_id IN ({order_ph})"))
         db.execute(text(f"DELETE FROM order_items WHERE order_id IN ({order_ph})"))
@@ -950,6 +951,97 @@ try:
               client.put(f"/orders/{svc_order_id}/status?status=paid",
                          headers={"X-Service-Token": "test-service-token"}).status_code == 400)
     client.delete(f"/orders/{svc_order_id}", headers=admin_auth)  # returns the reserved stock
+
+    # ---- Reviews and ratings ----
+    review_product_id = in_stock_product()
+    check("cannot review a product you haven't received",
+          client.post("/reviews", json={"product_id": review_product_id, "rating": 5},
+                      headers=auth).status_code == 403)
+    check("reviewing an unknown product 404s",
+          client.post("/reviews", json={"product_id": 999999, "rating": 5},
+                      headers=auth).status_code == 404)
+    check("a rating outside 1-5 is rejected",
+          client.post("/reviews", json={"product_id": review_product_id, "rating": 6},
+                      headers=auth).status_code == 422)
+
+    # Deliver an order containing this product so the customer becomes eligible.
+    client.post("/cart/add", json={"product_id": review_product_id, "quantity": 1}, headers=auth)
+    review_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{review_order_id}", headers=staff_auth)
+    client.put(f"/orders/{review_order_id}/status?status=shipped", headers=staff_auth)
+    client.put(f"/orders/{review_order_id}/status?status=delivered", headers=staff_auth)
+
+    elig = client.get(f"/products/{review_product_id}/reviews/mine", headers=auth)
+    check("eligible to review once the order has been delivered",
+          elig.status_code == 200 and elig.json()["can_review"] is True, elig.text)
+
+    r = client.post("/reviews", json={"product_id": review_product_id, "rating": 4,
+                                       "comment": "Solid product, works as advertised."},
+                    headers=auth)
+    check("the customer submits a review, starting pending",
+          r.status_code == 201 and r.json()["status"] == "pending" and r.json()["rating"] == 4, r.text)
+    review_id = r.json()["id"]
+
+    check("a second review on the same product is refused",
+          client.post("/reviews", json={"product_id": review_product_id, "rating": 3},
+                      headers=auth).status_code == 409)
+    elig = client.get(f"/products/{review_product_id}/reviews/mine", headers=auth)
+    check("eligibility now reflects the existing (pending) review",
+          elig.status_code == 200 and elig.json()["can_review"] is False
+          and elig.json()["review"]["id"] == review_id, elig.text)
+
+    check("a pending review doesn't appear on the product page yet",
+          client.get(f"/products/{review_product_id}/reviews").json()["total_reviews"] == 0)
+    check("customers cannot open the moderation queue",
+          client.get("/reviews/all", headers=auth).status_code == 403)
+    queue = client.get("/reviews/all", params={"status": "pending"}, headers=staff_auth)
+    check("staff see the pending review with the reviewer's identity",
+          queue.status_code == 200
+          and any(x["id"] == review_id and x["user_email"] == CUSTOMER_EMAIL for x in queue.json()),
+          queue.text[:200])
+
+    r = client.post(f"/reviews/{review_id}/approve", headers=staff_auth)
+    check("staff approve the review", r.status_code == 200 and r.json()["status"] == "approved", r.text)
+
+    page = client.get(f"/products/{review_product_id}/reviews")
+    check("the approved review now appears on the product page with the aggregate",
+          page.status_code == 200 and page.json()["total_reviews"] == 1
+          and page.json()["average_rating"] == 4.0
+          and any(x["id"] == review_id for x in page.json()["items"]), page.text[:200])
+    product = client.get(f"/products/{review_product_id}").json()
+    check("the product's own average_rating/review_count match the same numbers",
+          product["average_rating"] == 4.0 and product["review_count"] == 1, str(product)[:200])
+
+    # A second reviewer, rating higher, to check sort=top vs sort=recent and averaging.
+    client.post("/cart/add", json={"product_id": review_product_id, "quantity": 1}, headers=other_auth)
+    review_order2_id = client.post("/checkout?payment_method=cash", headers=other_auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{review_order2_id}", headers=staff_auth)
+    client.put(f"/orders/{review_order2_id}/status?status=shipped", headers=staff_auth)
+    client.put(f"/orders/{review_order2_id}/status?status=delivered", headers=staff_auth)
+    r = client.post("/reviews", json={"product_id": review_product_id, "rating": 5}, headers=other_auth)
+    review2_id = r.json()["id"]
+    client.post(f"/reviews/{review2_id}/approve", headers=staff_auth)
+
+    top = client.get(f"/products/{review_product_id}/reviews", params={"sort": "top"})
+    check("sort=top ranks the 5-star review first, aggregate over both",
+          top.json()["items"][0]["id"] == review2_id
+          and top.json()["average_rating"] == 4.5 and top.json()["total_reviews"] == 2, top.text[:200])
+    recent = client.get(f"/products/{review_product_id}/reviews", params={"sort": "recent"})
+    check("sort=recent (default) puts the newest review first",
+          recent.json()["items"][0]["id"] == review2_id, recent.text[:200])
+
+    r = client.post(f"/reviews/{review2_id}/reject", headers=admin_auth)
+    check("staff can reject a review instead of approving it",
+          r.status_code == 200 and r.json()["status"] == "rejected", r.text)
+    after_reject = client.get(f"/products/{review_product_id}/reviews").json()
+    check("a rejected review drops back out of the product page and the average",
+          after_reject["total_reviews"] == 1 and after_reject["average_rating"] == 4.0,
+          str(after_reject)[:200])
+    check("an unknown review id 404s on approve/reject",
+          client.post("/reviews/999999/approve", headers=staff_auth).status_code == 404)
+
+    client.delete(f"/orders/{review_order_id}", headers=admin_auth)
+    client.delete(f"/orders/{review_order2_id}", headers=admin_auth)
 
     # ---- Display numbers: every department counts 1, 2, 3 with no gaps ----
     # Raw ids are AUTO_INCREMENT and keep the holes left by deleted rows;

@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
-from .models import OrderStatus, PaymentStatus, ReturnReason, ReturnStatus, UserRole
+from .models import OrderStatus, PaymentStatus, ReturnReason, ReturnStatus, ReviewStatus, UserRole
 
 
 # ---------- Auth ----------
@@ -80,6 +80,11 @@ class ProductOut(ProductBase):
     id: int
     popularity: int
     created_at: datetime
+    # Computed from approved reviews only — see Product.average_rating /
+    # .review_count in models.py. None means the product has no reviews yet
+    # (as opposed to 0, an average of literally zero stars).
+    average_rating: Optional[float] = None
+    review_count: int = 0
 
 
 class ProductList(BaseModel):
@@ -237,6 +242,54 @@ class AdminReturnOut(ReturnRequestOut):
     user_name: str
     user_email: EmailStr
     decided_by: Optional[str] = None
+
+
+# ---------- Reviews ----------
+class ReviewCreate(BaseModel):
+    product_id: int
+    rating: int = Field(ge=1, le=5, description="1 to 5 stars.")
+    comment: Optional[str] = Field(
+        default=None, max_length=2000,
+        examples=["Great battery life, camera is a big step up from my old phone."],
+    )
+
+
+class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    user_name: Optional[str] = None  # who wrote it, for display on the product page
+    product_id: int
+    rating: int
+    comment: Optional[str] = None
+    status: ReviewStatus
+    created_at: datetime
+
+
+class AdminReviewOut(ReviewOut):
+    """Review with the reviewer's email and the product's name — for the
+    staff moderation queue."""
+    user_email: EmailStr
+    product_name: str
+
+
+class ProductReviewsOut(BaseModel):
+    """GET /products/{id}/reviews — the approved reviews plus the aggregate
+    numbers the product page's star rating is built from."""
+    product_id: int
+    average_rating: Optional[float] = None
+    total_reviews: int
+    items: List[ReviewOut]
+
+
+class ReviewEligibilityOut(BaseModel):
+    """GET /products/{id}/reviews/mine — whether the signed-in user may
+    review this product right now, and their existing review if they
+    already left one (any status, so they can see it's pending)."""
+    can_review: bool
+    reason: Optional[str] = None  # why not, when can_review is False
+    review: Optional[ReviewOut] = None
 
 
 class InvoiceOut(BaseModel):

@@ -209,13 +209,41 @@ React modal + queue, Django admin actions through the service token.
   - Rate limiting on login, register and refresh.
   - Django: enforced secret key and allowed hosts, secure cookies, CSRF
     trusted origins, optional HTTPS redirect.
-- **Postman collection** — 51 requests, generated from the live API schema;
+- **Postman collection** — 64 requests, generated from the live API schema;
   logging in stores the token for every other request.
 - **Documentation** — deployment guide with a production checklist, and a timed
   demo script.
 
 **Tech:** Alembic, Docker, docker compose, gunicorn + uvicorn workers,
 whitenoise, custom FastAPI middleware.
+
+## Phase 8 — Reviews and ratings
+
+**Goal:** let customers rate and review products they've actually bought.
+
+**What was built**
+
+- A **Review** record — user, product, 1-5 star rating, optional comment,
+  status, timestamp — with a database constraint enforcing the 1-5 range and
+  another blocking a second review from the same customer on the same product.
+- **`POST /reviews`** checks the customer has a **delivered** order containing
+  the product before accepting anything; a new review starts `pending`.
+- **Moderation** — staff/admin work the queue with `GET /reviews/all`
+  (`?status=pending`) and `POST /reviews/{id}/approve|reject`. Only approved
+  reviews count towards a product's average or appear on its page.
+- **`GET /products/{id}/reviews`** returns the approved reviews plus the
+  average rating and total count, sortable by `recent` (default) or `top`
+  (highest-rated first); **`GET /products/{id}/reviews/mine`** tells the
+  storefront whether the signed-in customer may review this product right now.
+- **Product page UI** — a star-rating badge and review count on every product
+  card, and in the detail view: the average + total, a write-a-review form
+  gated by eligibility (or the customer's own pending/approved review if they
+  already left one), and the review list with a recent/top toggle.
+
+**Tech:** FastAPI, SQLAlchemy (a `CheckConstraint` and `UniqueConstraint` doing
+the validation at the database level, not just in Python), Alembic migration
+0005, React star-rating components reusing the same live-refresh patterns as
+Returns.
 
 ---
 
@@ -241,8 +269,8 @@ whitenoise, custom FastAPI middleware.
 
 | Suite | Size | Covers |
 |---|---|---|
-| `fastapi_backend/smoke_test.py` | **235 checks** | Auth, roles, deactivation, filters, cart maths, Stripe and cash checkout, order lifecycle, invoices, notifications, WebSocket events, email in both modes, inbox, admin APIs, rate limiting, security headers |
-| `django_admin` tests | **50 tests** | Admin screens, user/product/order management, image upload, dashboard, CSV/PDF exports, the PDF writer, the admin→API client |
+| `fastapi_backend/smoke_test.py` | **300 checks** | Auth, roles, deactivation, filters, cart maths, Stripe and cash checkout, order lifecycle, returns and refunds, reviews and ratings, invoices, notifications, WebSocket events, email in both modes, inbox, admin APIs, rate limiting, security headers |
+| `django_admin` tests | **58 tests** | Admin screens, user/product/order management, image upload, dashboard, CSV/PDF exports, the PDF writer, the admin→API client |
 
 The API suite runs against the real database and puts everything back
 afterwards — the users it creates, the stock it buys and the order numbers it
@@ -266,6 +294,12 @@ uses.
 7. **The test suite was draining real stock** — one product had reached zero.
    Fixed, and the catalogue repaired.
 8. **Admin order changes sent no email** — now routed through the API.
+9. **The Django admin's return approve/reject silently never worked** — it
+   called the API with a service token, but those endpoints only accepted a
+   customer/staff JWT. Fixed by accepting either.
+10. **"Most recent" reviews weren't reliably newest-first** — two reviews
+    created in the same second tied on a second-precision timestamp with no
+    tiebreaker; added `id desc` as the secondary sort key.
 
 ---
 
@@ -307,10 +341,10 @@ cd django_admin && python manage.py test analytics
 
 ```
 fastapi_backend/     API, storefront server, business rules
-  app/routers/       endpoints (auth, products, cart, checkout, orders, payments, admin)
+  app/routers/       endpoints (auth, products, cart, checkout, orders, payments, returns, reviews, admin)
   app/services/      order events, email, notifications, Stripe
   alembic/           database migrations
-  smoke_test.py      the 235-check suite
+  smoke_test.py      the 300-check suite
 django_admin/        admin panel, analytics, reports
   analytics/         models (read-only views of store tables), admin screens, charts, exports
 frontend/            React storefront

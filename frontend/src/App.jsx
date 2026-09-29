@@ -358,7 +358,7 @@ export default function App() {
         busy={busy}
       />
 
-      <ProductDetailModal product={detailProduct} qty={qty} setQty={setQty} onClose={() => setDetailProduct(null)} onAdd={addToCart} />
+      <ProductDetailModal product={detailProduct} qty={qty} setQty={setQty} onClose={() => setDetailProduct(null)} onAdd={addToCart} user={user} notify={notify} />
 
       {formProduct !== undefined && (
         <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSubmit={saveProduct} onDelete={deleteProduct} />

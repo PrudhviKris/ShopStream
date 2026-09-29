@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatMoney } from "../money";
+import { RatingSummary, ReviewsSection } from "./Reviews";
 
 const CATEGORIES = ["electronics", "clothing", "home", "sports"];
 
@@ -26,6 +27,7 @@ export function ProductCard({ product, onOpen, onAdd, canAdd, canManage, onEdit,
       <div className="product-body">
         <span className="cat">{product.category}</span>
         <h3 className="title" onClick={() => onOpen(product)}>{product.name}</h3>
+        <RatingSummary product={product} />
         <div className="price-row2">
           <div>
             <span className="price">{formatMoney(product.price)}</span>
@@ -85,7 +87,7 @@ export function Filters({ filters, setFilters }) {
   );
 }
 
-export function ProductDetailModal({ product, qty, setQty, onClose, onAdd }) {
+export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, user, notify }) {
   if (!product) return null;
   const hasImage = Boolean(product.images?.[0]);
   const stockClass = product.stock === 0 ? "out" : product.stock <= 30 ? "low" : "ok";
@@ -114,6 +116,9 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd }) {
               🛒 Add to cart — {formatMoney(product.price * qty)}
             </button>
           </div>
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <ReviewsSection product={product} user={user} notify={notify} />
         </div>
       </div>
     </div>
