@@ -27,6 +27,7 @@ export function ProductCard({ product, onOpen, onAdd, canAdd, canManage, onEdit,
       <div className="product-body">
         <span className="cat">{product.category}</span>
         <h3 className="title" onClick={() => onOpen(product)}>{product.name}</h3>
+        <div className="product-id">Product #{product.product_number ?? product.id} <span className="mono">· id {product.id}</span></div>
         <RatingSummary product={product} />
         <div className="price-row2">
           <div>
@@ -103,6 +104,7 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, user,
         <div>
           <span className="cat">{product.category}</span>
           <h2 style={{ margin: "6px 0 4px" }}>{product.name}</h2>
+          <p className="id-line mono">Product #{product.product_number ?? product.id} · id {product.id}</p>
           <span className="price" style={{ fontSize: 22 }}>{formatMoney(product.price)}</span>
           <p className="muted" style={{ margin: "10px 0" }}>{product.description}</p>
           <span className={`stock-note ${stockClass}`}>{stockText}</span>
@@ -173,6 +175,9 @@ export function ProductFormModal({ product, onClose, onSubmit, onDelete }) {
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close close-btn" onClick={onClose}>✕</button>
         <h2>{editing ? "Edit product" : "Add product"}</h2>
+        {editing && (
+          <p className="id-line mono">Product #{product.product_number ?? product.id} · id {product.id}</p>
+        )}
         {error && <div className="form-error">{error}</div>}
         <form onSubmit={submit}>
           <div className="field">

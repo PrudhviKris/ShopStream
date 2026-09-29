@@ -78,6 +78,7 @@ class ProductOut(ProductBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    product_number: Optional[int] = None  # friendly "Product #N", gapless
     popularity: int
     created_at: datetime
     # Computed from approved reviews only — see Product.average_rating /

@@ -263,8 +263,14 @@ try:
     except Exception:
         check("MySQL enum rejects a role outside admin/staff/customer", True)
 
+    with SessionLocal() as _db:
+        before_product = _db.execute(text(
+            "SELECT value FROM sequences WHERE name = 'product_number'")).scalar() or 0
     r = client.post("/products", json=new_product, headers=admin_auth)
     check("admin can create product", r.status_code == 201, r.text)
+    check("the new product was assigned a gapless product_number",
+          r.json()["product_number"] == before_product + 1,
+          f'{r.json()["product_number"]} after counter {before_product}')
     rbac_id = r.json()["id"]
     r = client.put(f"/products/{rbac_id}", json={"name": "Renamed by staff", "stock": 9,
         "images": ["https://example.com/new-photo.jpg"]}, headers=staff_auth)
@@ -1048,7 +1054,8 @@ try:
     # these numbers are what people quote, so they must stay unbroken.
     with SessionLocal() as _db:
         for table, column in (("users", "customer_number"), ("orders", "order_number"),
-                              ("payments", "payment_number"), ("return_requests", "return_number")):
+                              ("payments", "payment_number"), ("return_requests", "return_number"),
+                              ("products", "product_number")):
             rows = _db.execute(text(
                 f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL ORDER BY id")).fetchall()
             numbers = [row[1] for row in rows]

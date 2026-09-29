@@ -17,6 +17,7 @@ fourth role by editing this column.
 """
 from app.database import Base, SessionLocal, engine
 from app.models import Product, Role
+from app.services.sequence_service import next_sequence_value
 
 Base.metadata.create_all(bind=engine)
 
@@ -163,6 +164,7 @@ def seed() -> None:
                         stock=stock,
                         popularity=popularity,
                         images=[product_image(name, category)],
+                        product_number=next_sequence_value(db, "product_number"),
                     )
                 )
                 created += 1

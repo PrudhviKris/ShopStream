@@ -94,6 +94,7 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
+    product_number = Column(Integer, unique=True, index=True, nullable=True)  # friendly "Product #N", gapless
     name = Column(String(200), nullable=False, index=True)
     description = Column(Text, default="")
     category = Column(String(100), index=True, default="general")

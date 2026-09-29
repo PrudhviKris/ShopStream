@@ -243,7 +243,8 @@ the product detail view shows the full breakdown: average + count, a write-a-rev
 gated by eligibility, and the review list with a recent/top toggle.
 
 **Display numbers** — every department has a friendly number that counts 1, 2, 3 with
-no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`) and Return #. They
+no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`), Return # and
+Product #. They
 come from the `sequences` table, which only advances when a row is actually committed —
 unlike the raw `id` (MySQL AUTO_INCREMENT), which leaves holes wherever a row was deleted
 or a transaction rolled back. Both are shown in the UI: the friendly number leads, the raw

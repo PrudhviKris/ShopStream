@@ -14,6 +14,7 @@ from ..schemas import (
     ProductUpdate,
     ReviewEligibilityOut,
 )
+from ..services.sequence_service import next_sequence_value
 from .reviews import has_delivered_order
 from .reviews import serialize as serialize_review
 
@@ -181,7 +182,7 @@ def create_product(
     db: Session = Depends(get_db),
     _staff: User = Depends(require_staff_or_admin),
 ):
-    product = Product(**body.model_dump())
+    product = Product(**body.model_dump(), product_number=next_sequence_value(db, "product_number"))
     db.add(product)
     db.commit()
     db.refresh(product)
