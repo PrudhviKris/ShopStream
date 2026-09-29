@@ -15,6 +15,7 @@ from ..database import get_db
 from ..deps import get_current_user, require_staff_or_admin
 from ..models import Order, OrderItem, OrderStatus, Product, Review, ReviewStatus, User, UserRole
 from ..schemas import AdminReviewOut, ReviewCreate, ReviewOut
+from ..services.sequence_service import next_sequence_value
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
@@ -24,6 +25,7 @@ def serialize(review: Review, admin: bool = False):
     the reviewer's email, for the moderation queue."""
     data = {
         "id": review.id,
+        "review_number": review.review_number,
         "user_id": review.user_id,
         "user_name": review.user.name if review.user else None,
         "product_id": review.product_id,
@@ -92,6 +94,7 @@ def create_review(
         product_id=body.product_id,
         rating=body.rating,
         comment=(body.comment or "").strip() or None,
+        review_number=next_sequence_value(db, "review_number"),
     )
     db.add(review)
     db.commit()

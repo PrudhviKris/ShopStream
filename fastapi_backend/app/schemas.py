@@ -259,6 +259,7 @@ class ReviewOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    review_number: Optional[int] = None  # friendly "Review #N", gapless
     user_id: int
     user_name: Optional[str] = None  # who wrote it, for display on the product page
     product_id: int

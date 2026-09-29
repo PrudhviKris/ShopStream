@@ -483,6 +483,7 @@ class Review(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    review_number = Column(Integer, unique=True, index=True, nullable=True)  # friendly "Review #N", gapless
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     rating = Column(Integer, nullable=False)  # 1-5, enforced by the CHECK constraint above too

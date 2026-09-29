@@ -322,6 +322,7 @@ export default function App() {
               onEdit={(p) => setFormProduct(p)}
               onDelete={deleteProduct}
               onCreate={() => setFormProduct(null)}
+              notify={notify}
             />
           )}
 

@@ -240,11 +240,13 @@ total count (computed over every approved review, not just the page shown), with
 storefront whether the signed-in customer may leave a review right now, and their existing
 one if they already have. The product page shows a star rating badge on every card, and
 the product detail view shows the full breakdown: average + count, a write-a-review form
-gated by eligibility, and the review list with a recent/top toggle.
+gated by eligibility, and the review list with a recent/top toggle. Staff/admin get a
+**Reviews** tab on the Products page — a moderation queue (filterable by status) with
+approve/reject actions, the reviewer's identity, and the product it's for.
 
 **Display numbers** — every department has a friendly number that counts 1, 2, 3 with
-no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`), Return # and
-Product #. They
+no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`), Return #,
+Product # and Review #. They
 come from the `sequences` table, which only advances when a row is actually committed —
 unlike the raw `id` (MySQL AUTO_INCREMENT), which leaves holes wherever a row was deleted
 or a transaction rolled back. Both are shown in the UI: the friendly number leads, the raw

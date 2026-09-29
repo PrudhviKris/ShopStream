@@ -981,11 +981,23 @@ try:
     check("eligible to review once the order has been delivered",
           elig.status_code == 200 and elig.json()["can_review"] is True, elig.text)
 
+    # The chosen product may already carry real reviews from actual use of the
+    # storefront — never assume it starts at zero. Everything below is
+    # asserted relative to this baseline instead of hardcoded totals.
+    base = client.get(f"/products/{review_product_id}/reviews", params={"limit": 200}).json()
+    base_total, base_items = base["total_reviews"], base["items"]
+
+    with SessionLocal() as _db:
+        before_review = _db.execute(text(
+            "SELECT value FROM sequences WHERE name = 'review_number'")).scalar() or 0
     r = client.post("/reviews", json={"product_id": review_product_id, "rating": 4,
                                        "comment": "Solid product, works as advertised."},
                     headers=auth)
     check("the customer submits a review, starting pending",
           r.status_code == 201 and r.json()["status"] == "pending" and r.json()["rating"] == 4, r.text)
+    check("the new review was assigned a gapless review_number",
+          r.json()["review_number"] == before_review + 1,
+          f'{r.json()["review_number"]} after counter {before_review}')
     review_id = r.json()["id"]
 
     check("a second review on the same product is refused",
@@ -997,7 +1009,7 @@ try:
           and elig.json()["review"]["id"] == review_id, elig.text)
 
     check("a pending review doesn't appear on the product page yet",
-          client.get(f"/products/{review_product_id}/reviews").json()["total_reviews"] == 0)
+          client.get(f"/products/{review_product_id}/reviews").json()["total_reviews"] == base_total)
     check("customers cannot open the moderation queue",
           client.get("/reviews/all", headers=auth).status_code == 403)
     queue = client.get("/reviews/all", params={"status": "pending"}, headers=staff_auth)
@@ -1009,14 +1021,16 @@ try:
     r = client.post(f"/reviews/{review_id}/approve", headers=staff_auth)
     check("staff approve the review", r.status_code == 200 and r.json()["status"] == "approved", r.text)
 
-    page = client.get(f"/products/{review_product_id}/reviews")
+    expected_avg = round((sum(i["rating"] for i in base_items) + 4) / (base_total + 1), 1)
+    page = client.get(f"/products/{review_product_id}/reviews", params={"limit": 200})
     check("the approved review now appears on the product page with the aggregate",
-          page.status_code == 200 and page.json()["total_reviews"] == 1
-          and page.json()["average_rating"] == 4.0
+          page.status_code == 200 and page.json()["total_reviews"] == base_total + 1
+          and page.json()["average_rating"] == expected_avg
           and any(x["id"] == review_id for x in page.json()["items"]), page.text[:200])
     product = client.get(f"/products/{review_product_id}").json()
     check("the product's own average_rating/review_count match the same numbers",
-          product["average_rating"] == 4.0 and product["review_count"] == 1, str(product)[:200])
+          product["average_rating"] == expected_avg and product["review_count"] == base_total + 1,
+          str(product)[:200])
 
     # A second reviewer, rating higher, to check sort=top vs sort=recent and averaging.
     client.post("/cart/add", json={"product_id": review_product_id, "quantity": 1}, headers=other_auth)
@@ -1028,10 +1042,12 @@ try:
     review2_id = r.json()["id"]
     client.post(f"/reviews/{review2_id}/approve", headers=staff_auth)
 
-    top = client.get(f"/products/{review_product_id}/reviews", params={"sort": "top"})
-    check("sort=top ranks the 5-star review first, aggregate over both",
+    expected_avg2 = round((sum(i["rating"] for i in base_items) + 4 + 5) / (base_total + 2), 1)
+    top = client.get(f"/products/{review_product_id}/reviews", params={"sort": "top", "limit": 200})
+    check("sort=top ranks the new 5-star review first (rating desc, ties broken by newest), aggregate over all",
           top.json()["items"][0]["id"] == review2_id
-          and top.json()["average_rating"] == 4.5 and top.json()["total_reviews"] == 2, top.text[:200])
+          and top.json()["average_rating"] == expected_avg2
+          and top.json()["total_reviews"] == base_total + 2, top.text[:200])
     recent = client.get(f"/products/{review_product_id}/reviews", params={"sort": "recent"})
     check("sort=recent (default) puts the newest review first",
           recent.json()["items"][0]["id"] == review2_id, recent.text[:200])
@@ -1039,9 +1055,10 @@ try:
     r = client.post(f"/reviews/{review2_id}/reject", headers=admin_auth)
     check("staff can reject a review instead of approving it",
           r.status_code == 200 and r.json()["status"] == "rejected", r.text)
-    after_reject = client.get(f"/products/{review_product_id}/reviews").json()
+    after_reject = client.get(f"/products/{review_product_id}/reviews", params={"limit": 200}).json()
     check("a rejected review drops back out of the product page and the average",
-          after_reject["total_reviews"] == 1 and after_reject["average_rating"] == 4.0,
+          after_reject["total_reviews"] == base_total + 1
+          and after_reject["average_rating"] == expected_avg,
           str(after_reject)[:200])
     check("an unknown review id 404s on approve/reject",
           client.post("/reviews/999999/approve", headers=staff_auth).status_code == 404)
@@ -1055,7 +1072,7 @@ try:
     with SessionLocal() as _db:
         for table, column in (("users", "customer_number"), ("orders", "order_number"),
                               ("payments", "payment_number"), ("return_requests", "return_number"),
-                              ("products", "product_number")):
+                              ("products", "product_number"), ("reviews", "review_number")):
             rows = _db.execute(text(
                 f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL ORDER BY id")).fetchall()
             numbers = [row[1] for row in rows]

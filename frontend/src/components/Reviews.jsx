@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-const when = (iso) => new Date(iso + "Z").toLocaleDateString();
+const when = (iso) => new Date(iso + "Z").toLocaleString();
 
 /** Read-only star row. `value` may be fractional (e.g. 4.5) for an average. */
 export function StarRating({ value, size = 16 }) {
@@ -162,5 +162,99 @@ export function ReviewsSection({ product, user, notify }) {
       )}
       {data && data.total_reviews === 0 && <p className="sub-note">No reviews yet — be the first.</p>}
     </div>
+  );
+}
+
+/** Staff/admin: the moderation queue, with approve and reject. */
+export function ReviewsQueue({ notify }) {
+  const [reviews, setReviews] = useState([]);
+  const [filter, setFilter] = useState("pending");
+  const [busyId, setBusyId] = useState(null);
+
+  const load = () => api.allReviews(filter).then(setReviews).catch(() => {});
+  useEffect(() => { load(); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function decide(review, approve) {
+    setBusyId(review.id);
+    try {
+      approve ? await api.approveReview(review.id) : await api.rejectReview(review.id);
+      notify(
+        approve ? "Review approved" : "Review rejected",
+        `Review #${review.review_number ?? review.id} on "${review.product_name}" ${approve ? "is now live." : "stays hidden."}`,
+      );
+      load();
+    } catch (err) {
+      notify("Couldn't update the review", err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="chip-row" role="group" aria-label="Filter reviews">
+          {[["pending", "Awaiting moderation"], ["approved", "Approved"], ["rejected", "Rejected"], ["", "All"]].map(
+            ([value, label]) => (
+              <button key={value || "all"} className={`chip ${filter === value ? "on" : ""}`}
+                      onClick={() => setFilter(value)}>{label}</button>
+            ))}
+        </div>
+        <span className="sub">{reviews.length} review{reviews.length === 1 ? "" : "s"}</span>
+      </div>
+
+      <div className="panel table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Review</th><th>Product</th><th>Customer</th><th>Rating</th>
+              <th>Comment</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {reviews.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  Review #{r.review_number ?? r.id}
+                  <div className="sub mono">review ID {r.id}</div>
+                  <div className="sub">{when(r.created_at)}</div>
+                </td>
+                <td>
+                  {r.product_name}
+                  <div className="sub mono">product ID {r.product_id}</div>
+                </td>
+                <td>
+                  {r.user_name}
+                  <div className="sub">{r.user_email}</div>
+                  <div className="sub mono">user ID {r.user_id}</div>
+                </td>
+                <td><StarRating value={r.rating} size={13} /></td>
+                <td>{r.comment ? <span className="sub">“{r.comment}”</span> : <span className="sub">—</span>}</td>
+                <td><span className={`badge review-${r.status}`}>{r.status}</span></td>
+                <td className="row-actions">
+                  {r.status === "pending" ? (
+                    <>
+                      <button className="mini-btn" disabled={busyId === r.id} onClick={() => decide(r, true)}>
+                        Approve
+                      </button>
+                      <button className="mini-btn danger" disabled={busyId === r.id} onClick={() => decide(r, false)}>
+                        Reject
+                      </button>
+                    </>
+                  ) : (
+                    <span className="sub">decided</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {reviews.length === 0 && (
+              <tr><td colSpan={7} className="sub">
+                {filter === "pending" ? "Nothing waiting — the queue is clear." : "No reviews here."}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
