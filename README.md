@@ -202,6 +202,7 @@ go out together.
 | `order_status_updated` | order placed, paid, payment failed, shipped, delivered, cancelled | the order's customer + every connected staff/admin |
 | `cart_updated` | item added / updated / removed, cart cleared at checkout (full cart in `data`) | that user (all their tabs) |
 | `notification` | a notification was stored | its user |
+| `review_submitted` | a customer posted a review | every connected staff/admin (moderation queue refreshes live) |
 | `notifications_read` | notifications marked read | that user (keeps badges in sync) |
 | `order_deleted` | an admin deleted an order | the customer + staff/admin |
 | `connected` / `pong` | on connect / reply to a `ping` text frame | that socket |
@@ -242,7 +243,13 @@ one if they already have. The product page shows a star rating badge on every ca
 the product detail view shows the full breakdown: average + count, a write-a-review form
 gated by eligibility, and the review list with a recent/top toggle. Staff/admin get a
 **Reviews** tab on the Products page — a moderation queue (filterable by status) with
-approve/reject actions, the reviewer's identity, and the product it's for.
+approve/reject actions, the reviewer's identity, and the product it's for; a new review
+lands in it live, the same way a return does in the Returns queue.
+
+Notifications (bell + email) go out at both moments a customer cares about: the review is
+**posted and pending** approval, and the decision — **approved** (now live on the product
+page) or **rejected**. Reusing the same `notify()` + email pipeline as orders and returns,
+so nothing can send one and forget the other.
 
 **Display numbers** — every department has a friendly number that counts 1, 2, 3 with
 no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`), Return #,

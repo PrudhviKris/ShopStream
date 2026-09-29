@@ -990,15 +990,28 @@ try:
     with SessionLocal() as _db:
         before_review = _db.execute(text(
             "SELECT value FROM sequences WHERE name = 'review_number'")).scalar() or 0
-    r = client.post("/reviews", json={"product_id": review_product_id, "rating": 4,
-                                       "comment": "Solid product, works as advertised."},
-                    headers=auth)
-    check("the customer submits a review, starting pending",
-          r.status_code == 201 and r.json()["status"] == "pending" and r.json()["rating"] == 4, r.text)
-    check("the new review was assigned a gapless review_number",
-          r.json()["review_number"] == before_review + 1,
-          f'{r.json()["review_number"]} after counter {before_review}')
-    review_id = r.json()["id"]
+
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws, \
+            client.websocket_connect(f"/ws/notifications?token={staff_tokens['access_token']}") as staff_ws:
+        ws.receive_json(), staff_ws.receive_json()
+        r = client.post("/reviews", json={"product_id": review_product_id, "rating": 4,
+                                           "comment": "Solid product, works as advertised."},
+                        headers=auth)
+        check("the customer submits a review, starting pending",
+              r.status_code == 201 and r.json()["status"] == "pending" and r.json()["rating"] == 4, r.text)
+        check("the new review was assigned a gapless review_number",
+              r.json()["review_number"] == before_review + 1,
+              f'{r.json()["review_number"]} after counter {before_review}')
+        review_id = r.json()["id"]
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("the customer is notified their review was received",
+              note is not None and note["data"]["type"] == "review_submitted", str(seen))
+        queued, seen = receive_until(staff_ws, lambda m: m["event"] == "review_submitted")
+        check("staff see the new review land in their moderation queue live",
+              queued is not None and queued["data"]["review_id"] == review_id, str(seen))
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+    check("the customer gets a review-received email",
+          any(m.startswith("Review received") for m in mails), str(mails[:3]))
 
     check("a second review on the same product is refused",
           client.post("/reviews", json={"product_id": review_product_id, "rating": 3},
@@ -1018,8 +1031,16 @@ try:
           and any(x["id"] == review_id and x["user_email"] == CUSTOMER_EMAIL for x in queue.json()),
           queue.text[:200])
 
-    r = client.post(f"/reviews/{review_id}/approve", headers=staff_auth)
-    check("staff approve the review", r.status_code == 200 and r.json()["status"] == "approved", r.text)
+    with client.websocket_connect(f"/ws/notifications?token={tokens['access_token']}") as ws:
+        ws.receive_json()
+        r = client.post(f"/reviews/{review_id}/approve", headers=staff_auth)
+        check("staff approve the review", r.status_code == 200 and r.json()["status"] == "approved", r.text)
+        note, seen = receive_until(ws, lambda m: m["event"] == "notification")
+        check("the customer is notified their review was approved",
+              note is not None and note["data"]["type"] == "review_approved", str(seen))
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=auth).json()]
+    check("the customer gets a review-approved email",
+          any(m.startswith("Your review is live") for m in mails), str(mails[:3]))
 
     expected_avg = round((sum(i["rating"] for i in base_items) + 4) / (base_total + 1), 1)
     page = client.get(f"/products/{review_product_id}/reviews", params={"limit": 200})
@@ -1055,6 +1076,9 @@ try:
     r = client.post(f"/reviews/{review2_id}/reject", headers=admin_auth)
     check("staff can reject a review instead of approving it",
           r.status_code == 200 and r.json()["status"] == "rejected", r.text)
+    mails = [e["subject"] for e in client.get("/dev/emails", headers=other_auth).json()]
+    check("the other reviewer is emailed about the rejection",
+          any(m.startswith("About your review") for m in mails), str(mails[:3]))
     after_reject = client.get(f"/products/{review_product_id}/reviews", params={"limit": 200}).json()
     check("a rejected review drops back out of the product page and the average",
           after_reject["total_reviews"] == base_total + 1

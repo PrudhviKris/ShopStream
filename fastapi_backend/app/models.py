@@ -330,6 +330,9 @@ class NotificationType(str, enum.Enum):
     return_requested = "return_requested"
     return_approved = "return_approved"
     return_rejected = "return_rejected"
+    review_submitted = "review_submitted"
+    review_approved = "review_approved"
+    review_rejected = "review_rejected"
     info = "info"
 
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useStoreEvent } from "../live";
 
 const when = (iso) => new Date(iso + "Z").toLocaleString();
 
@@ -173,6 +174,8 @@ export function ReviewsQueue({ notify }) {
 
   const load = () => api.allReviews(filter).then(setReviews).catch(() => {});
   useEffect(() => { load(); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A customer submitting a review lands here live, same as the returns queue.
+  useStoreEvent(["review_submitted"], load, 400);
 
   async function decide(review, approve) {
     setBusyId(review.id);

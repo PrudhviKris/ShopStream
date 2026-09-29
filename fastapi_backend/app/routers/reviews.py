@@ -15,6 +15,7 @@ from ..database import get_db
 from ..deps import get_current_user, require_staff_or_admin
 from ..models import Order, OrderItem, OrderStatus, Product, Review, ReviewStatus, User, UserRole
 from ..schemas import AdminReviewOut, ReviewCreate, ReviewOut
+from ..services.review_events import review_approved, review_rejected, review_submitted
 from ..services.sequence_service import next_sequence_value
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
@@ -99,6 +100,7 @@ def create_review(
     db.add(review)
     db.commit()
     db.refresh(review)
+    review_submitted(db, review)
     return serialize(review)
 
 
@@ -140,6 +142,7 @@ def approve_review(
     review.status = ReviewStatus.approved
     db.commit()
     db.refresh(review)
+    review_approved(db, review)
     return serialize(review, admin=True)
 
 
@@ -152,4 +155,5 @@ def reject_review(
     review.status = ReviewStatus.rejected
     db.commit()
     db.refresh(review)
+    review_rejected(db, review)
     return serialize(review, admin=True)
