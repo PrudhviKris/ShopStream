@@ -1,5 +1,7 @@
 import { formatMoney } from "../money";
-export default function CartDrawer({ open, cart, products, onClose, onUpdateQty, onRemove, onCheckout, busy }) {
+import { YouMayAlsoLike } from "./Recommendations";
+
+export default function CartDrawer({ open, cart, products, onClose, onUpdateQty, onRemove, onCheckout, onAdd, busy }) {
   if (!open) return null;
   const imageFor = (id) => products.find((p) => p.id === id)?.images?.[0];
   const items = cart?.items || [];
@@ -43,6 +45,13 @@ export default function CartDrawer({ open, cart, products, onClose, onUpdateQty,
                 </div>
               </div>
             ))
+          )}
+          {onAdd && (
+            <YouMayAlsoLike
+              excludeIds={items.map((i) => i.product_id)}
+              onOpen={onAdd}
+              onAdd={onAdd}
+            />
           )}
         </div>
 

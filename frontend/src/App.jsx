@@ -306,7 +306,15 @@ export default function App() {
           )}
 
           {!receiptFor && view === "dashboard" && (
-            <DashboardPage user={user} products={products} cart={cart} orders={orders} onNavigate={setView} />
+            <DashboardPage
+              user={user}
+              products={products}
+              cart={cart}
+              orders={orders}
+              onNavigate={setView}
+              onOpen={(p) => { setDetailProduct(p); setQty(1); }}
+              onAdd={(p) => addToCart(p, 1)}
+            />
           )}
 
           {!receiptFor && view === "products" && (
@@ -356,10 +364,20 @@ export default function App() {
         onUpdateQty={updateQty}
         onRemove={(id) => updateQty(id, 0)}
         onCheckout={checkout}
+        onAdd={(p) => addToCart(p, 1)}
         busy={busy}
       />
 
-      <ProductDetailModal product={detailProduct} qty={qty} setQty={setQty} onClose={() => setDetailProduct(null)} onAdd={addToCart} user={user} notify={notify} />
+      <ProductDetailModal
+        product={detailProduct}
+        qty={qty}
+        setQty={setQty}
+        onClose={() => setDetailProduct(null)}
+        onAdd={addToCart}
+        onOpenProduct={(p) => { setDetailProduct(p); setQty(1); }}
+        user={user}
+        notify={notify}
+      />
 
       {formProduct !== undefined && (
         <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSubmit={saveProduct} onDelete={deleteProduct} />

@@ -1,11 +1,11 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..deps import get_current_user, require_staff_or_admin
-from ..models import OrderItem, Product, Review, ReviewStatus, User
+from ..models import OrderItem, Product, ProductView, Review, ReviewStatus, User
 from ..schemas import (
     ProductCreate,
     ProductList,
@@ -14,6 +14,7 @@ from ..schemas import (
     ProductUpdate,
     ReviewEligibilityOut,
 )
+from ..services import recommendation_service
 from ..services.sequence_service import next_sequence_value
 from .reviews import has_delivered_order
 from .reviews import serialize as serialize_review
@@ -89,6 +90,17 @@ def products_by_category(
         .all()
     )
     return ProductList(total=total, page=page, page_size=page_size, items=items)
+
+
+@router.get("/trending", response_model=List[ProductOut])
+def trending(db: Session = Depends(get_db), limit: int = Query(default=8, ge=1, le=50)):
+    """Most-viewed and most-purchased right now (last 30 days), falling back
+    to all-time popularity when there isn't much recent activity yet.
+
+    Registered before GET /{product_id} — "trending" must never be parsed as
+    a product id.
+    """
+    return recommendation_service.trending_products(db, limit=limit)
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -173,6 +185,37 @@ def my_review_eligibility(
         )
 
     return ReviewEligibilityOut(can_review=True)
+
+
+# ---------- Recommendations ----------
+@router.post("/{product_id}/view", status_code=status.HTTP_204_NO_CONTENT)
+def record_view(
+    product_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The storefront calls this when a signed-in customer opens a product's
+    detail view — the browsing-history signal "Recommended for you" and
+    "Trending" are partly built from. Fire-and-forget from the frontend;
+    never blocks or fails the page open."""
+    if db.get(Product, product_id) is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.add(ProductView(user_id=user.id, product_id=product_id))
+    db.commit()
+
+
+@router.get("/{product_id}/similar", response_model=List[ProductOut])
+def similar(
+    product_id: int,
+    db: Session = Depends(get_db),
+    limit: int = Query(default=8, ge=1, le=50),
+):
+    """Same category, ranked by rating and popularity — "Similar Products" /
+    "You may also like" on the product page."""
+    product = db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return recommendation_service.similar_products(db, product, limit=limit)
 
 
 # ---------- Product management: staff & admin (RBAC) ----------

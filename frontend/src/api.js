@@ -132,6 +132,12 @@ export const api = {
   approveReview: (id) => request(`/reviews/${id}/approve`, { method: "POST" }),
   rejectReview: (id) => request(`/reviews/${id}/reject`, { method: "POST" }),
 
+  // ---- recommendations ----
+  trackView: (productId) => request(`/products/${productId}/view`, { method: "POST" }).catch(() => {}),
+  similarProducts: (productId, limit = 8) => request(`/products/${productId}/similar?limit=${limit}`),
+  trendingProducts: (limit = 8) => request(`/products/trending?limit=${limit}`),
+  recommendations: (userId, limit = 8) => request(`/recommendations/${userId}?limit=${limit}`),
+
   // ---- invoices ----
   myInvoices: () => request("/invoices"),
 

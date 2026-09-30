@@ -496,3 +496,21 @@ class Review(Base):
 
     user = relationship("User")
     product = relationship("Product", back_populates="reviews")
+
+
+class ProductView(Base):
+    """One row per time a signed-in customer opens a product's detail view.
+
+    Purely an engagement signal for recommendations/trending — see
+    services/recommendation_service.py. user_id/product_id are deliberately
+    not foreign keys (same reasoning as Notification.order_id above): a
+    product with no order history can still be hard-deleted by an admin, and
+    that must never fail because it once had views.
+    """
+
+    __tablename__ = "product_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

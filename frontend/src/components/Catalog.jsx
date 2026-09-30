@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { api } from "../api";
 import { formatMoney } from "../money";
+import { SimilarProducts } from "./Recommendations";
 import { RatingSummary, ReviewsSection } from "./Reviews";
 
 const CATEGORIES = ["electronics", "clothing", "home", "sports"];
@@ -88,7 +90,12 @@ export function Filters({ filters, setFilters }) {
   );
 }
 
-export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, user, notify }) {
+export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, onOpenProduct, user, notify }) {
+  const productId = product?.id;
+  useEffect(() => {
+    if (user && productId) api.trackView(productId);
+  }, [user, productId]);
+
   if (!product) return null;
   const hasImage = Boolean(product.images?.[0]);
   const stockClass = product.stock === 0 ? "out" : product.stock <= 30 ? "low" : "ok";
@@ -120,6 +127,11 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, user,
           </div>
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
+          <SimilarProducts
+            productId={product.id}
+            onOpen={onOpenProduct || (() => {})}
+            onAdd={(p) => onAdd(p, 1)}
+          />
           <ReviewsSection product={product} user={user} notify={notify} />
         </div>
       </div>

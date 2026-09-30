@@ -251,6 +251,18 @@ Notifications (bell + email) go out at both moments a customer cares about: the 
 page) or **rejected**. Reusing the same `notify()` + email pipeline as orders and returns,
 so nothing can send one and forget the other.
 
+**Recommendations** — heuristic, not ML: plain SQL over real store data. `GET
+/products/{id}/similar` (same category, ranked by rating and popularity — "Similar
+Products" on the product page), `GET /products/trending` (recent views + recent purchases,
+purchases weighted far higher — "You May Also Like" in the cart drawer), and `GET
+/recommendations/{user_id}` (your own purchase history + browsing history + a "customers
+who bought this also bought" collaborative signal — "Recommended For You" on the
+dashboard). Every one of the three falls back to top-rated/trending products when there's
+too little data, so a section is never empty — including for a brand-new account with no
+history yet. `POST /products/{id}/view` records the browsing-history signal; the storefront
+calls it whenever a signed-in customer opens a product's detail view. Recommendations never
+include something the customer already bought.
+
 **Display numbers** — every department has a friendly number that counts 1, 2, 3 with
 no gaps: Customer #, Order #, Payment #, Invoice # (`INV-2026-00001`), Return #,
 Product # and Review #. They
@@ -342,7 +354,7 @@ origins stable.
   new one, `alembic check` reports drift. In containers `AUTO_CREATE_SCHEMA=false`, so
   migrations are the only thing that changes the schema. Django's `manage.py migrate`
   still creates its own auth/session tables.
-- **Postman:** [docs/postman_collection.json](docs/postman_collection.json) — 64 requests
+- **Postman:** [docs/postman_collection.json](docs/postman_collection.json) — 68 requests
   in 11 folders, generated from the OpenAPI schema by
   `python tools/generate_postman.py`. Import it, set `base_url`, run
   **Authentication → Login** and the tokens are stored for every other request.
@@ -357,13 +369,13 @@ origins stable.
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
-- `fastapi_backend/smoke_test.py` — 300 end-to-end checks (auth, role promotion via direct
+- `fastapi_backend/smoke_test.py` — 332 end-to-end checks (auth, role promotion via direct
   MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, notification
   types and `POST /notifications/read`, WebSocket `order_status_updated` / `cart_updated`
   events, emails on both backends including SMTP failure and retry, returns and refunds,
-  reviews and ratings, admin analytics/users/email APIs, the user inbox, account
-  deactivation, security headers, the auth rate limit and the production config guard)
-  against the configured database:
+  reviews and ratings, recommendations, admin analytics/users/email APIs, the user inbox,
+  account deactivation, security headers, the auth rate limit and the production config
+  guard) against the configured database:
   `python smoke_test.py`. It restores stock, popularity and the display-number
   counters afterwards, so it leaves the database exactly as it found it.
 

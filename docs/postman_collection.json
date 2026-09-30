@@ -1518,6 +1518,33 @@
           }
         },
         {
+          "name": "Trending Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/trending",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "trending"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "8",
+                  "description": "1-50, default 8.",
+                  "disabled": true
+                }
+              ],
+              "variable": []
+            },
+            "description": "Most-viewed and most-purchased right now (last 30 days), falling back\nto all-time popularity when there isn't much recent activity yet."
+          }
+        },
+        {
           "name": "Get Product",
           "request": {
             "method": "GET",
@@ -1609,6 +1636,67 @@
               ]
             },
             "description": "Whether you may leave a review on this product right now, and your\nexisting review (any status) if you already have — drives the \"Write a\nreview\" button on the product page."
+          }
+        },
+        {
+          "name": "Similar Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}/similar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}",
+                "similar"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "8",
+                  "description": "1-50, default 8.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Same category, ranked by rating and popularity — \"Similar Products\" /\n\"You may also like\" on the product page."
+          }
+        },
+        {
+          "name": "Record Product View",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/{product_id}/view",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "products",
+                "{product_id}",
+                "view"
+              ],
+              "query": [],
+              "variable": [
+                {
+                  "key": "product_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "The storefront calls this when a signed-in customer opens a product's\ndetail view — feeds the browsing-history signal behind \"Trending\" and\n\"Recommended for you\"."
           }
         },
         {
@@ -1951,6 +2039,44 @@
               ]
             },
             "description": "Staff/admin: decline a review (spam, abuse, off-topic) — it stays hidden."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recommendations",
+      "item": [
+        {
+          "name": "Recommendations For User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/recommendations/{user_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "recommendations",
+                "{user_id}"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "8",
+                  "description": "1-50, default 8.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "user_id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "\"Recommended for you\" — your own recommendations, or (staff/admin\nonly) any customer's. Blends purchase history, browsing history\n(product_views) and a \"customers who bought this also bought\"\ncollaborative signal; falls back to top-rated/trending for a user\nwith no history yet."
           }
         }
       ]

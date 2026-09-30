@@ -22,6 +22,7 @@ from .routers import (
     orders,
     payments,
     products,
+    recommendations,
     returns,
     reviews,
 )
@@ -111,6 +112,12 @@ tags_metadata = [
      "customer; it starts `pending`. `GET /products/{id}/reviews` returns only the `approved` "
      "ones plus the average rating and total count. Staff moderate with `GET /reviews/all` and "
      "`POST /reviews/{id}/approve|reject`."},
+    {"name": "Recommendations", "description": "Heuristic product recommendations — no ML, plain "
+     "SQL over real store data. `GET /products/{id}/similar` (same category), "
+     "`GET /products/trending` (recent views + purchases), and `GET /recommendations/{user_id}` "
+     "(purchase history + browsing history + \"customers who bought this also bought\"), each "
+     "falling back to top-rated/trending so a section is never empty. `POST /products/{id}/view` "
+     "records the browsing-history signal."},
     {"name": "Admin", "description": "**Admin only.** Store analytics for the dashboard, the user "
      "directory, and the log of every outgoing email."},
 ]
@@ -159,6 +166,7 @@ app.include_router(notifications.router)
 app.include_router(dev_emails.router)
 app.include_router(returns.router)
 app.include_router(reviews.router)
+app.include_router(recommendations.router)
 app.include_router(admin.router)
 
 

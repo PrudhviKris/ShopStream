@@ -84,7 +84,7 @@ Open both.
 ### 9. Tests (30 s) — *screenshot: the passing summary*
 
 ```bash
-cd fastapi_backend && python smoke_test.py      # 300 checks
+cd fastapi_backend && python smoke_test.py      # 332 checks
 cd django_admin && python manage.py test analytics   # 58 tests
 ```
 

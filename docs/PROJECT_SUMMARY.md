@@ -245,6 +245,41 @@ the validation at the database level, not just in Python), Alembic migration
 0005, React star-rating components reusing the same live-refresh patterns as
 Returns.
 
+## Phase 9 — Product recommendations
+
+**Goal:** intelligent-feeling product recommendations — no ML, plain SQL over
+real store data.
+
+**What was built**
+
+- A **ProductView** record — one row per time a signed-in customer opens a
+  product's detail view, recorded by a new `POST /products/{id}/view`. The
+  browsing-history signal everything else is partly built from.
+- **`GET /products/{id}/similar`** — same category, ranked by rating then
+  popularity, backfilled with the catalogue's best-sellers if the category is
+  too small to fill the section on its own.
+- **`GET /products/trending`** — recent views + recent purchases (purchases
+  weighted 5x — buying is a far stronger signal than a glance), blended with
+  all-time popularity so it's never sparse on a quiet catalogue.
+- **`GET /recommendations/{user_id}`** — your own recommendations, or (staff/
+  admin) any customer's. Blends three signals: category affinity from
+  purchases and browsing history, a "customers who bought this also bought"
+  collaborative signal computed with plain joins, and a small nudge from
+  rating. Falls back to top-rated + trending for a brand-new account with no
+  history — never an empty section. Never recommends something the customer
+  already bought.
+- **Storefront UI** — three widgets, each with its own natural home: **Recommended
+  For You** on the dashboard, **You May Also Like** in the cart drawer
+  (trending, minus whatever's already in the cart), and **Similar Products**
+  on the product detail view. All three share one horizontally-scrolling
+  "rail" component.
+
+**Tech:** FastAPI, SQLAlchemy (`func.count`/`func.sum` aggregates, not the ORM
+event system), Alembic migration 0008. `ProductView.user_id`/`product_id` are
+deliberately not foreign keys — same reasoning as `Notification.order_id` —
+so a product with no order history can still be hard-deleted without its view
+history getting in the way.
+
 ---
 
 ## What each role can do
@@ -269,7 +304,7 @@ Returns.
 
 | Suite | Size | Covers |
 |---|---|---|
-| `fastapi_backend/smoke_test.py` | **300 checks** | Auth, roles, deactivation, filters, cart maths, Stripe and cash checkout, order lifecycle, returns and refunds, reviews and ratings, invoices, notifications, WebSocket events, email in both modes, inbox, admin APIs, rate limiting, security headers |
+| `fastapi_backend/smoke_test.py` | **332 checks** | Auth, roles, deactivation, filters, cart maths, Stripe and cash checkout, order lifecycle, returns and refunds, reviews and ratings, recommendations, invoices, notifications, WebSocket events, email in both modes, inbox, admin APIs, rate limiting, security headers |
 | `django_admin` tests | **58 tests** | Admin screens, user/product/order management, image upload, dashboard, CSV/PDF exports, the PDF writer, the admin→API client |
 
 The API suite runs against the real database and puts everything back
@@ -341,10 +376,10 @@ cd django_admin && python manage.py test analytics
 
 ```
 fastapi_backend/     API, storefront server, business rules
-  app/routers/       endpoints (auth, products, cart, checkout, orders, payments, returns, reviews, admin)
-  app/services/      order events, email, notifications, Stripe
+  app/routers/       endpoints (auth, products, cart, checkout, orders, payments, returns, reviews, recommendations, admin)
+  app/services/      order events, email, notifications, Stripe, recommendations
   alembic/           database migrations
-  smoke_test.py      the 300-check suite
+  smoke_test.py      the 332-check suite
 django_admin/        admin panel, analytics, reports
   analytics/         models (read-only views of store tables), admin screens, charts, exports
 frontend/            React storefront

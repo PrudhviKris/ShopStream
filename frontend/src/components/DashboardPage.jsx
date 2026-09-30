@@ -3,8 +3,9 @@ import { api } from "../api";
 import { useStoreEvent } from "../live";
 import { ROLE_META, roleMeta } from "../roles";
 import { formatMoneyShort } from "../money";
+import { RecommendedForYou } from "./Recommendations";
 
-export default function DashboardPage({ user, products, cart, orders, onNavigate }) {
+export default function DashboardPage({ user, products, cart, orders, onNavigate, onOpen, onAdd }) {
   const meta = roleMeta(user.role);
   const [adminStats, setAdminStats] = useState(null);
   const totalStock = products.reduce((a, p) => a + Number(p.stock || 0), 0);
@@ -106,6 +107,8 @@ export default function DashboardPage({ user, products, cart, orders, onNavigate
           </div>
         </div>
       )}
+
+      {onOpen && onAdd && <RecommendedForYou userId={user.id} onOpen={onOpen} onAdd={onAdd} />}
 
       <div className="panel">
         <div className="panel-head"><h3>What you can do</h3></div>

@@ -287,6 +287,18 @@ h1, h2, h3 { font-family: var(--font-display); }
 .add-btn:hover { background: var(--primary); color: #fff; }
 .add-btn:disabled { background: var(--paper); color: var(--muted-2); cursor: not-allowed; }
 .manage-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ---------- Recommendation rails ---------- */
+.rail-section { margin: 22px 0; }
+.rail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.rail-head h3 { margin: 0; font: 700 17px var(--font-display); }
+.rail-head .sub { font-size: 12.5px; color: var(--muted-2); }
+.rail { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+.rail .product-card.rail-card { flex: 0 0 170px; scroll-snap-align: start; }
+.rail .rail-card .product-img { height: 120px; }
+.rail .rail-card .product-body { padding: 10px; }
+.rail-card-skeleton { flex: 0 0 170px; height: 200px; border-radius: var(--radius); background: linear-gradient(90deg, var(--paper) 25%, var(--line) 50%, var(--paper) 75%); background-size: 200% 100%; animation: rail-shimmer 1.4s infinite; }
+@keyframes rail-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .manage-row button { flex: 1; min-width: 0; }
 
 .empty { padding: 50px 20px; text-align: center; color: var(--muted); }

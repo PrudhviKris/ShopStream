@@ -167,6 +167,7 @@ def cleanup(user_ids):
         db.execute(text(f"DELETE FROM return_requests WHERE user_id IN ({placeholders}) "
                         f"OR order_id IN ({order_ph})"))
         db.execute(text(f"DELETE FROM reviews WHERE user_id IN ({placeholders})"))
+        db.execute(text(f"DELETE FROM product_views WHERE user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM invoices WHERE order_id IN ({order_ph}) OR user_id IN ({placeholders})"))
         db.execute(text(f"DELETE FROM payments WHERE order_id IN ({order_ph})"))
         db.execute(text(f"DELETE FROM order_items WHERE order_id IN ({order_ph})"))
@@ -1089,6 +1090,74 @@ try:
 
     client.delete(f"/orders/{review_order_id}", headers=admin_auth)
     client.delete(f"/orders/{review_order2_id}", headers=admin_auth)
+
+    # ---- Recommendations ----
+    # Similar products: same category, self excluded, in stock, respects limit.
+    sim_source = client.get(f"/products/{review_product_id}").json()
+    sim = client.get(f"/products/{review_product_id}/similar", params={"limit": 3})
+    check("similar products excludes the product itself and respects the limit",
+          sim.status_code == 200 and len(sim.json()) <= 3
+          and all(p["id"] != review_product_id for p in sim.json())
+          and all(p["stock"] > 0 for p in sim.json()), sim.text[:200])
+    check("an unknown product 404s on /similar",
+          client.get("/products/999999/similar").status_code == 404)
+
+    # Trending: a product bought several times just now should surface,
+    # regardless of whatever else is trending from earlier in this run.
+    trend_product_id = in_stock_product(5)
+    client.post("/cart/add", json={"product_id": trend_product_id, "quantity": 5}, headers=auth)
+    trend_order_id = client.post("/checkout?payment_method=cash", headers=auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{trend_order_id}", headers=staff_auth)
+    trending = client.get("/products/trending", params={"limit": 50})
+    check("a product bought several times just now shows up in trending",
+          trending.status_code == 200
+          and any(p["id"] == trend_product_id for p in trending.json()), trending.text[:300])
+    check("trending respects its own limit",
+          len(client.get("/products/trending", params={"limit": 2}).json()) <= 2)
+    client.delete(f"/orders/{trend_order_id}", headers=admin_auth)
+
+    # View tracking: POST /products/{id}/view.
+    check("recording a view requires auth",
+          client.post(f"/products/{review_product_id}/view").status_code == 401)
+    check("recording a view on an unknown product 404s",
+          client.post("/products/999999/view", headers=auth).status_code == 404)
+    check("a signed-in customer can record a view",
+          client.post(f"/products/{review_product_id}/view", headers=auth).status_code == 204)
+
+    # Recommendations: build a customer with real category affinity (browsed
+    # + bought electronics), then check the logic actually uses it.
+    rec_tokens, rec_auth, rec_id = register(f"smoke-recs-{RUN_ID}@example.com", "Smoke Recs Customer")
+    electronics = client.get("/products", params={"category": "electronics", "in_stock": True, "page_size": 5}).json()["items"]
+    viewed_id, bought_id = electronics[0]["id"], electronics[1]["id"]
+    for _ in range(3):
+        client.post(f"/products/{viewed_id}/view", headers=rec_auth)
+    client.post("/cart/add", json={"product_id": bought_id, "quantity": 1}, headers=rec_auth)
+    rec_order_id = client.post("/checkout?payment_method=cash", headers=rec_auth).json()["order_id"]
+    client.post(f"/payments/cash/confirm/{rec_order_id}", headers=staff_auth)
+
+    check("a customer cannot fetch another customer's recommendations",
+          client.get(f"/recommendations/{rec_id}", headers=auth).status_code == 403)
+    check("recommendations require auth",
+          client.get(f"/recommendations/{rec_id}").status_code == 401)
+    check("an unknown user_id 404s",
+          client.get("/recommendations/999999", headers=staff_auth).status_code == 404)
+
+    recs = client.get(f"/recommendations/{rec_id}", headers=rec_auth)
+    check("a customer with purchase + browsing history gets recommendations",
+          recs.status_code == 200 and len(recs.json()) > 0, recs.text[:300])
+    check("recommendations never include something the customer already bought",
+          all(p["id"] != bought_id for p in recs.json()), recs.text[:300])
+    check("staff can fetch any customer's recommendations",
+          client.get(f"/recommendations/{rec_id}", headers=staff_auth).status_code == 200)
+
+    # Cold start: a brand-new customer with no history still gets a populated,
+    # non-empty section (top-rated/trending fallback), never an empty list.
+    cold_tokens, cold_auth, cold_id = register(f"smoke-cold-{RUN_ID}@example.com", "Smoke Cold Start")
+    cold_recs = client.get(f"/recommendations/{cold_id}", headers=cold_auth)
+    check("a brand-new customer with no history still gets recommendations",
+          cold_recs.status_code == 200 and len(cold_recs.json()) > 0, cold_recs.text[:300])
+
+    client.delete(f"/orders/{rec_order_id}", headers=admin_auth)
 
     # ---- Display numbers: every department counts 1, 2, 3 with no gaps ----
     # Raw ids are AUTO_INCREMENT and keep the holes left by deleted rows;
