@@ -126,7 +126,7 @@ export function ProductDetailModal({ product, qty, setQty, onClose, onAdd, onOpe
             </button>
           </div>
         </div>
-        <div style={{ gridColumn: "1 / -1" }}>
+        <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
           <SimilarProducts
             productId={product.id}
             onOpen={onOpenProduct || (() => {})}
