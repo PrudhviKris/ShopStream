@@ -369,6 +369,12 @@ origins stable.
 
 - **Swagger UI** (http://localhost:8000/docs) is the interactive way to exercise every
   endpoint — login, copy the token into **Authorize**, and try requests in the browser.
+- `fastapi_backend/tests/` — a fast pytest suite that needs no MySQL or Stripe keys (SQLite,
+  mock Stripe, database email inbox) and runs in CI: `cd fastapi_backend && pip install -r
+  requirements-dev.txt && python -m pytest -q`. It signs webhook payloads the way Stripe does and
+  checks signature rejection, idempotent delivery (a repeated event creates no second invoice),
+  that a late failure event cannot undo a paid order, the stock re-check at checkout, cash
+  confirmation, and who may read which payment or receipt.
 - `fastapi_backend/smoke_test.py` — 332 end-to-end checks (auth, role promotion via direct
   MySQL update, RBAC, filters, cart math, Stripe + cash checkout, admin deletes, notification
   types and `POST /notifications/read`, WebSocket `order_status_updated` / `cart_updated`

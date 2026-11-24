@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import CartItem, Order, OrderItem, Payment, PaymentStatus, User
+from ..models import CartItem, Order, OrderItem, Payment, PaymentStatus, Product, User
 from ..schemas import CheckoutResponse
 from .cart import build_cart
 from ..services import order_events, stripe_service
@@ -64,7 +64,14 @@ def checkout(
     if not cart_items:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
-    # 1. Validate stock for every line item
+    # 1. Validate stock for every line item. The product rows are locked first
+    # (SELECT ... FOR UPDATE on MySQL) so two simultaneous checkouts can't both
+    # pass the check and oversell the last units; populate_existing refreshes
+    # the stock values this request already loaded.
+    db.query(Product).filter(
+        Product.id.in_([i.product_id for i in cart_items])
+    ).order_by(Product.id).with_for_update().populate_existing().all()
+
     for item in cart_items:
         if item.product.stock < item.quantity:
             raise HTTPException(

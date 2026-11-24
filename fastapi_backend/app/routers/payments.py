@@ -86,8 +86,16 @@ async def stripe_webhook(
             return {"received": True, "matched": False}
 
         if event["type"] in ("checkout.session.completed", "payment_intent.succeeded"):
+            # Stripe retries deliveries and can send several events for one payment.
+            # Only a pending (or previously failed) payment may become paid, so a
+            # repeat is a no-op instead of a second invoice, email and notification.
+            if payment.status not in (PaymentStatus.pending, PaymentStatus.failed):
+                return {"received": True, "matched": True, "duplicate": True}
             _mark_paid(db, payment)
         elif event["type"] == "payment_intent.payment_failed":
+            # A late failure event must never undo a payment that already succeeded.
+            if payment.status != PaymentStatus.pending:
+                return {"received": True, "matched": True, "duplicate": True}
             _mark_failed(db, payment)
         return {"received": True, "matched": True}
     except Exception:
